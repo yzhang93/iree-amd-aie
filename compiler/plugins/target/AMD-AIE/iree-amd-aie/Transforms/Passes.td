@@ -30,4 +30,11 @@ def AMDAIETileAndFuse :
   ];
 }
 
+def AMDAIEPackAndBufferize :
+    Pass<"iree-amdaie-pack-and-bufferize", "IREE::HAL::ExecutableVariantOp"> {
+  let summary = "Pass to pack and bufferize the matmul operations.";
+  let constructor =
+      "mlir::iree_compiler::AMDAIE::createAMDAIEPackAndBufferizePass()";
+}
+
 #endif // IREE_AMD_AIE_TRANSFORMS_PASSES

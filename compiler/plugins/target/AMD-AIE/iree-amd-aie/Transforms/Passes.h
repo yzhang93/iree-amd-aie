@@ -37,6 +37,10 @@ createAMDAIELowerExecutableTargetPass();
 std::unique_ptr<OperationPass<IREE::HAL::ExecutableVariantOp>>
 createAMDAIETileAndFusePass(int64_t tilingLevel = -1);
 
+/// Create a pass to pack and bufferize matmul op.
+std::unique_ptr<OperationPass<IREE::HAL::ExecutableVariantOp>>
+createAMDAIEPackAndBufferizePass();
+
 void registerAMDAIEPasses();
 
 }  // namespace mlir::iree_compiler::AMDAIE
