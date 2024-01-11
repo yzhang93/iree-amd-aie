@@ -9,6 +9,10 @@ iree_lit_test_suite(
     lit
   SRCS
     "matmul_fill_static_i32.mlir"
+    "pad_and_bufferize.mlir"
+    "tile_and_fuse.mlir"
+    "pack_and_transpose_level1.mlir"
+    "pack_and_transpose_level2.mlir"
   TOOLS
     ${IREE_LLD_TARGET}
     FileCheck
