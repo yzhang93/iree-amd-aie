@@ -24,6 +24,7 @@
 #include "mlir/IR/Iterators.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/IR/BuiltinOps.h"
 
 #define DEBUG_TYPE "iree-amdaie-tile-and-fuse"
 
@@ -127,10 +128,10 @@ std::optional<scf::SCFFuseProducerOfSliceResult> tileAndFuseProducerOfSlice(
   // 2a. Compute the destination operands to use for the cloned operation.
   SmallVector<Value> origDestinationTensors, clonedOpDestinationTensors;
   Operation *fusableProducerOp = fusableProducer.getOwner();
-  if (isa<DestinationStyleOpInterface>(fusableProducerOp) &&
+  if (isa<tensor::PackOp>(fusableProducerOp) || (isa<DestinationStyleOpInterface>(fusableProducerOp) &&
       failed(tensor::getOrCreateDestinations(
           rewriter, fusableProducerOp->getLoc(), fusableProducerOp,
-          origDestinationTensors)))
+          origDestinationTensors))))
     return std::nullopt;
 
   clonedOpDestinationTensors = origDestinationTensors;
@@ -364,7 +365,7 @@ void AMDAIETileAndFusePass::runOnOperation() {
         [&](TilingInterface op) {
           // Find the next consumer op if it does not have loops OR if it is a
           // linalg.copy op.
-          if (op.getLoopIteratorTypes().empty() || isa<linalg::CopyOp>(op))
+          if (op.getLoopIteratorTypes().empty() || isa<linalg::CopyOp>(op) || isa<tensor::UnPackOp>(op))
             return WalkResult::advance();
           consumerOp = op;
           return WalkResult::interrupt();
@@ -373,7 +374,6 @@ void AMDAIETileAndFusePass::runOnOperation() {
       LLVM_DEBUG(llvm::dbgs() << "----- skip, no consumer op -----\n");
       return;
     }
-
     LLVM_DEBUG(llvm::dbgs() << "consumerOp: " << consumerOp << "\n");
     LLVM_DEBUG(llvm::dbgs() << "tilingLevel: " << tilingLevel << "\n");
     // TODO(avarma): Generalize this by adding pulling in tilingConfig based on
@@ -382,11 +382,11 @@ void AMDAIETileAndFusePass::runOnOperation() {
     // TODO(avarma): Have a global CONSTANT defining tiling stages and the
     // tiling strategy.
     if (tilingLevel == 1) {
-      tileSizes = getAsIndexOpFoldResult(context, {8, 8});
+      tileSizes = getAsIndexOpFoldResult(context, {16, 64});
     } else if (tilingLevel == 2) {
-      tileSizes = getAsIndexOpFoldResult(context, {4, 4});
+      tileSizes = getAsIndexOpFoldResult(context, {1, 1});
     } else if (tilingLevel == 3) {
-      tileSizes = getAsIndexOpFoldResult(context, {0, 0, 4});
+      tileSizes = getAsIndexOpFoldResult(context, {0, 0, 64});
     } else {
       assert(false && "unsupported tiling level");
     }
