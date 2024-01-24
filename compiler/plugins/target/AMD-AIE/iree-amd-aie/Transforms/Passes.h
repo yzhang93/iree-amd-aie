@@ -27,6 +27,10 @@ void addTransformDialectPasses(OpPassManager &passManager);
 /// within the IREE::HAL::ExecutableOp.
 void buildAMDAIETransformPassPipeline(OpPassManager &pm);
 
+/// Populates passes needed to lower the IR via a Pack based approach.
+void addPackBasedPassPipeline(OpPassManager &passManager,
+                             TilingConfig &tilingConfig);
+
 /// Populates passes needed to lower the IR via a Pad based approach.
 void addPadBasedPassPipeline(OpPassManager &passManager,
                              TilingConfig &tilingConfig);
