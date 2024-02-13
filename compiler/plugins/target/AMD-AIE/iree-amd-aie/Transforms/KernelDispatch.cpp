@@ -6,6 +6,7 @@
 
 #include "iree-amd-aie/Transforms/KernelDispatch.h"
 
+#include "iree-amd-aie/IR/AMDAIEAttrs.h"
 #include "iree/compiler/Codegen/Utils/CPUUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -30,6 +31,9 @@ static LogicalResult setRootConfigForPadPipeline(func::FuncOp entryPointFn,
 
 static LogicalResult setRootConfigForSimplePackPipeline(
     func::FuncOp entryPointFn, linalg::MatmulOp matmulOp) {
+  // ------------------------------------------------------
+  // -------------- Set lowering config -------------------
+  // ------------------------------------------------------
   // Assume working on a 2x2 AIE array and make sure the tile size is not larger
   // than the input size.
   auto initType = matmulOp.getDpsInitOperand(0)->get().getType();
@@ -47,14 +51,54 @@ static LogicalResult setRootConfigForSimplePackPipeline(
   SmallVector<int64_t> TileSizeLevel2 = {0, 0, 0, 0, 0, tileK};
   TileSizesListType tileSizes = {TileSizeLevel0, TileSizeLevel1,
                                  TileSizeLevel2};
-  return setOpConfigAndEntryPointFnTranslation(
-      entryPointFn, matmulOp, tileSizes,
-      IREE::Codegen::DispatchLoweringPassPipeline::None);
+  if (failed(setOpConfigAndEntryPointFnTranslation(
+          entryPointFn, matmulOp, tileSizes,
+          IREE::Codegen::DispatchLoweringPassPipeline::None))) {
+    return failure();
+  }
+  // ------------------------------------------------------
+  // --------------- Set packing config -------------------
+  // ------------------------------------------------------
+  // Pack level => 1.
+  // Set constraints for pack size [M, N] from first level of tile sizes
+  // Currently set pack size k as the input size K to avoid failure.
+  PackConfigTD packConfig1;
+  int64_t kSize = lhsShape[1];
+  packConfig1.packedSizes = {tileM0, tileN0, kSize};
+  // Transpose B matrix from [K N n k] to [K N k n]
+  packConfig1.transposePackIndices = {1};
+  // There is no corresponding unpack for the specified pack operation
+  // 0 is used when unpack is empty
+  packConfig1.unpackEmpty = {0};
+  packConfig1.innerPerm = {{1, 0}};
+  packConfig1.outerPerm = {{0, 1}};
+  // Pack level => 2.
+  PackConfigTD packConfig2;
+  // packed size for [M, N, K, m, n, k]
+  packConfig2.packedSizes = {0, 0, 0, 4, 8, 8};
+  // Transpose A matrix from [M K m k m0 k0] to [M K k m m0 k0]
+  // Transpose B matrix from [K N k n n0 k0] to [K N n k k0 n0]
+  // Transpose C matrix from [M N m n m0 n0] to [M N n m m0 n0]
+  packConfig2.transposePackIndices = {0, 1, 2};
+  // Only the third pack operation has a corresponding unpack operation
+  packConfig2.unpackEmpty = {0, 0, 1};
+  packConfig2.innerPerm = {{0, 1}, {1, 0}, {0, 1}};
+  packConfig2.outerPerm = {{0, 1, 3, 2}, {0, 1, 3, 2}, {0, 1, 3, 2}};
+
+  // TODO(avarma): Like tiling, create another API which would do the following.
+  PackingConfigListType packingConfig = {packConfig1, packConfig2};
+  MLIRContext *context = entryPointFn.getContext();
+  auto config = PackingConfigAttr::get(context, packingConfig);
+  setPackingConfig(matmulOp, config);
+  return success();
 }
 
 static LogicalResult setRootConfigForPackPipeline(func::FuncOp entryPointFn,
                                                   linalg::MatmulOp matmulOp,
                                                   AIEConfig cfg) {
+  // ------------------------------------------------------
+  // -------------- Set lowering config -------------------
+  // ------------------------------------------------------
   if (!(cfg.num_cores == 1 || cfg.num_cores == 2 || cfg.num_cores == 4))
     return matmulOp.emitOpError("unhandled number of cores");
   SmallVector<int64_t> TileSizeLevel0 = {16, 64 * cfg.num_cores};
@@ -62,9 +106,43 @@ static LogicalResult setRootConfigForPackPipeline(func::FuncOp entryPointFn,
   SmallVector<int64_t> TileSizeLevel2 = {1, 1};
   TileSizesListType tileSizes = {TileSizeLevel0, TileSizeLevel1,
                                  TileSizeLevel2};
-  return setOpConfigAndEntryPointFnTranslation(
-      entryPointFn, matmulOp, tileSizes,
-      IREE::Codegen::DispatchLoweringPassPipeline::None);
+  if (failed(setOpConfigAndEntryPointFnTranslation(
+          entryPointFn, matmulOp, tileSizes,
+          IREE::Codegen::DispatchLoweringPassPipeline::None))) {
+    return failure();
+  }
+  // ------------------------------------------------------
+  // --------------- Set packing config -------------------
+  // ------------------------------------------------------
+  // Pack level => 1.
+  PackConfigTD packConfig1;
+  packConfig1.packedSizes = {16, 64, 64};
+  // Transpose B matrix from [K N n k] to [K N k n]
+  packConfig1.transposePackIndices = {1};
+  // There is no corresponding unpack for the specified pack operation
+  // 0 is used when unpack is empty
+  packConfig1.unpackEmpty = {0};
+  packConfig1.innerPerm = {{1, 0}};
+  packConfig1.outerPerm = {{0, 1}};
+  // Pack level => 2.
+  PackConfigTD packConfig2;
+  // packed size for [M, N, K, m, n, k]
+  packConfig2.packedSizes = {0, 0, 0, 4, 8, 8};
+  // Transpose A matrix from [M K m k m0 k0] to [M K k m m0 k0]
+  // Transpose B matrix from [K N k n n0 k0] to [K N n k k0 n0]
+  // Transpose C matrix from [M N m n m0 n0] to [M N n m m0 n0]
+  packConfig2.transposePackIndices = {0, 1, 2};
+  // Only the third pack operation has a corresponding unpack operation
+  packConfig2.unpackEmpty = {0, 0, 1};
+  packConfig2.innerPerm = {{0, 1}, {1, 0}, {0, 1}};
+  packConfig2.outerPerm = {{0, 1, 3, 2}, {0, 1, 3, 2}, {0, 1, 3, 2}};
+
+  // TODO(avarma): Like tiling, create another API which would do the following.
+  PackingConfigListType packingConfig = {packConfig1, packConfig2};
+  MLIRContext *context = entryPointFn.getContext();
+  auto config = PackingConfigAttr::get(context, packingConfig);
+  setPackingConfig(matmulOp, config);
+  return success();
 }
 
 /// Sets the lowering configuration for dispatch region with root op that
@@ -85,6 +163,7 @@ static LogicalResult setRootConfig(func::FuncOp entryPointFn,
           "dim");
     }
   }
+
   // TODO (nmeshram) : This needs to be moved in a separate more generalized
   // logic. Also, need a flag to experiment between pad based and pack based
   // approach which will have different tile sizes and pass pipelines
