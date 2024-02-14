@@ -71,9 +71,9 @@ PackConfig PackingConfigAttr::getPackingConfigVals(unsigned level) {
   auto levels = getPackingLevels();
   if (level >= levels.size()) return {};
   PackConfig packConfig;
-  SmallVector<OpFoldResult> packedSizes;
+  SmallVector<int64_t> packedSizes;
   for (int64_t packedSize : levels[level].getPackedSizes()) {
-    packedSizes.push_back(builder.getI64IntegerAttr(packedSize));
+    packedSizes.push_back(packedSize);
   }
   packConfig.packedSizes = packedSizes;
 

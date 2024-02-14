@@ -8,6 +8,7 @@
 #include "iree-amd-aie/Transforms/Passes.h"
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Pass/Pass.h"
 
 #define DEBUG_TYPE "iree-amdaie-pack-and-transpose"
@@ -80,13 +81,16 @@ void AMDAIEPackAndTransposePass::runOnOperation() {
     funcOp->emitOpError("failed to get pack configs");
     return signalPassFailure();
   }
+
   // Step 2. Pack the operation
   IRRewriter rewriter(context);
   // Extract packing config from the `linalgOp`.
   PackConfig packCfg = packingConfig.getPackingConfigVals(packLevel);
+  SmallVector<OpFoldResult> packedSizes =
+      getAsIndexOpFoldResult(context, packCfg.packedSizes);
 
   FailureOr<linalg::PackResult> packResult =
-      applyPackOnLinalgOp(rewriter, linalgOp, packCfg.packedSizes);
+      applyPackOnLinalgOp(rewriter, linalgOp, packedSizes);
   if (failed(packResult)) {
     return signalPassFailure();
   }

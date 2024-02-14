@@ -16,10 +16,8 @@
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::iree_compiler {
-/// PackConfigTD and PackConfig ONLY differs in the first member variable
-/// `packedSizes`. One is a SmallVector<int64_t> and the other a
-/// SmallVector<OpFoldResult>. Should find a way to need only one.
-struct PackConfigTD {
+
+struct PackConfig {
   // Expected packed sizes for specified iterator dimensions
   SmallVector<int64_t> packedSizes;
   // Indices of pack operations need to be transposed
@@ -32,20 +30,8 @@ struct PackConfigTD {
   SmallVector<SmallVector<int64_t>> outerPerm;
 };
 /// Typedef for packing config to use at different levels of packing.
-using PackingConfigListType = SmallVector<PackConfigTD, 2>;
-using PackingConfigListTypeRef = ArrayRef<PackConfigTD>;
-struct PackConfig {
-  // Expected packed sizes for specified iterator dimensions
-  SmallVector<OpFoldResult> packedSizes;
-  // Indices of pack operations need to be transposed
-  SmallVector<int64_t> transposePackIndices;
-  // Indicator of if there is a unpack op corresponding to a pack op
-  SmallVector<int64_t> unpackEmpty;
-  // Attributes for inner dimension permutation
-  SmallVector<SmallVector<int64_t>> innerPerm;
-  // Attributes for outer dimension permutation
-  SmallVector<SmallVector<int64_t>> outerPerm;
-};
+using PackingConfigListType = SmallVector<PackConfig, 2>;
+using PackingConfigListTypeRef = ArrayRef<PackConfig>;
 
 }  // namespace mlir::iree_compiler
 

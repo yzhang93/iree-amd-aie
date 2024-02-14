@@ -62,7 +62,7 @@ static LogicalResult setRootConfigForSimplePackPipeline(
   // Pack level => 1.
   // Set constraints for pack size [M, N] from first level of tile sizes
   // Currently set pack size k as the input size K to avoid failure.
-  PackConfigTD packConfig1;
+  PackConfig packConfig1;
   int64_t kSize = lhsShape[1];
   packConfig1.packedSizes = {tileM0, tileN0, kSize};
   // Transpose B matrix from [K N n k] to [K N k n]
@@ -73,7 +73,7 @@ static LogicalResult setRootConfigForSimplePackPipeline(
   packConfig1.innerPerm = {{1, 0}};
   packConfig1.outerPerm = {{0, 1}};
   // Pack level => 2.
-  PackConfigTD packConfig2;
+  PackConfig packConfig2;
   // packed size for [M, N, K, m, n, k]
   packConfig2.packedSizes = {0, 0, 0, 4, 8, 8};
   // Transpose A matrix from [M K m k m0 k0] to [M K k m m0 k0]
@@ -115,7 +115,7 @@ static LogicalResult setRootConfigForPackPipeline(func::FuncOp entryPointFn,
   // --------------- Set packing config -------------------
   // ------------------------------------------------------
   // Pack level => 1.
-  PackConfigTD packConfig1;
+  PackConfig packConfig1;
   packConfig1.packedSizes = {16, 64, 64};
   // Transpose B matrix from [K N n k] to [K N k n]
   packConfig1.transposePackIndices = {1};
@@ -125,7 +125,7 @@ static LogicalResult setRootConfigForPackPipeline(func::FuncOp entryPointFn,
   packConfig1.innerPerm = {{1, 0}};
   packConfig1.outerPerm = {{0, 1}};
   // Pack level => 2.
-  PackConfigTD packConfig2;
+  PackConfig packConfig2;
   // packed size for [M, N, K, m, n, k]
   packConfig2.packedSizes = {0, 0, 0, 4, 8, 8};
   // Transpose A matrix from [M K m k m0 k0] to [M K k m m0 k0]
