@@ -9,6 +9,7 @@
 
 #include <array>
 
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/Types.h"
 
 namespace mlir::iree_compiler::AMDAIE {
@@ -64,6 +65,10 @@ FailureOr<std::array<uint32_t, 3>> getAIEIntegerMatmulInstructionSize(
 /// increase/decrease the tiling window depending on the element type's bit
 /// width.
 FailureOr<unsigned> getTilingScaleFactor(Type elemType);
+
+/// Utility function that aims to indentify whether a linalg.generic op is a
+/// matmul transpose op.
+bool isMatmulTranspose(linalg::GenericOp genericOp);
 
 namespace detail {
 

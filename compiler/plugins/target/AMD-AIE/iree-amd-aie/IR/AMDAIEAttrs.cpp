@@ -111,6 +111,21 @@ AMDAIE::PackingConfigPackingLevelAttr getPackingConfigPackingLevelAttr(
       outerPermAttr);
 }
 
+/// Overload of getPackingConfigPackingLevelAttr() with just `packedSizes` as
+/// input.
+AMDAIE::PackingConfigPackingLevelAttr getPackingConfigPackingLevelAttr(
+    MLIRContext *context, SmallVector<int64_t> &packedSizes) {
+  SmallVector<int64_t> transposePackIndices;
+  SmallVector<bool> unpackEmpty;
+  SmallVector<SmallVector<int64_t>> innerPermVal;
+  SmallVector<SmallVector<int64_t>> outerPermVal;
+  auto innerPermAttr = getPermLevelsAttr(context, innerPermVal);
+  auto outerPermAttr = getPermLevelsAttr(context, outerPermVal);
+  return AMDAIE::PackingConfigPackingLevelAttr::get(
+      context, packedSizes, transposePackIndices, unpackEmpty, innerPermAttr,
+      outerPermAttr);
+}
+
 //===----------------------------------------------------------------------===//
 // Helpers for getting/setting `amdaie.packing_config` attribute.
 // ===----------------------------------------------------------------------===//

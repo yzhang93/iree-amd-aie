@@ -50,13 +50,13 @@ def AMDAIE_PackingConfigPackingLevelAttr :
   let parameters = (ins
     ArrayRefParameter<"int64_t",
         "Expected packed sizes for specified iterator dimensions">:$packedSizes,
-    ArrayRefParameter<"int64_t",
+    OptionalArrayRefParameter<"int64_t",
         "Indices of pack operations need to be transposed">:$transposePackIndices,
-    ArrayRefParameter<"bool",
+    OptionalArrayRefParameter<"bool",
         "Indicator of if there is a unpack op corresponding to a pack op">:$unpackEmpty,
-    AttrParameter<"PermLevelsAttr",
+    OptionalParameter<"PermLevelsAttr",
         "Attributes for inner dimension permutation">:$innerPerm,
-    AttrParameter<"PermLevelsAttr",
+    OptionalParameter<"PermLevelsAttr",
         "Attributes for outer dimension permutation">:$outerPerm
   );
   

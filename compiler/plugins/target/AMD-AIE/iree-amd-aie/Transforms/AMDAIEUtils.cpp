@@ -7,6 +7,7 @@
 #include "AMDAIEUtils.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::iree_compiler::AMDAIE {
@@ -133,6 +134,74 @@ int detail::findLargestFactor(int num, int max) {
     }
   }
   return largestLowFactor;
+}
+
+/// TODO(avarma): This currently is skipping checking for ext* ops.
+static bool bodyMatcherForMatmulTranspose(Value yieldVal, Block *body) {
+  Operation *addOp = yieldVal.getDefiningOp();
+  if (!isa_and_nonnull<arith::AddIOp, arith::AddFOp>(addOp)) {
+    return false;
+  }
+  Operation *mulOp = addOp->getOperand(1).getDefiningOp();
+  if (!isa_and_nonnull<arith::MulIOp, arith::MulFOp>(mulOp)) {
+    return false;
+  }
+  auto lhsBlockArg = mulOp->getOperand(0).dyn_cast<BlockArgument>();
+  auto rhsBlockArg = mulOp->getOperand(1).dyn_cast<BlockArgument>();
+  auto outBlockArg = addOp->getOperand(0).dyn_cast<BlockArgument>();
+  if (!lhsBlockArg || !rhsBlockArg || !outBlockArg ||
+      lhsBlockArg.getOwner() != body || rhsBlockArg.getOwner() != body ||
+      outBlockArg.getOwner() != body || lhsBlockArg.getArgNumber() != 0 ||
+      rhsBlockArg.getArgNumber() != 1 || outBlockArg.getArgNumber() != 2) {
+    return false;
+  }
+  return true;
+}
+
+/// `isMatmulTranspose` is a utility function that aims to indentify whether a
+/// linalg.generic op is a matmul transpose op.
+bool isMatmulTranspose(linalg::GenericOp genericOp) {
+  // Step 1. Test the body of the generic to indeed be what we expect for a
+  //         matmul transpose.
+  Block *body = genericOp.getBlock();
+  auto yieldOp = cast<linalg::YieldOp>(body->getTerminator());
+  Value yieldVal = yieldOp.getOperand(0);
+  if (!bodyMatcherForMatmulTranspose(yieldVal, body)) {
+    return false;
+  }
+  // Step 2. Check iterator types.
+  SmallVector<utils::IteratorType> matmulTransposeIteratorTypes = {
+      utils::IteratorType::parallel, utils::IteratorType::parallel,
+      utils::IteratorType::reduction};
+  SmallVector<utils::IteratorType> opIteratorTypes =
+      genericOp.getIteratorTypesArray();
+  if (matmulTransposeIteratorTypes != opIteratorTypes) {
+    return false;
+  }
+  // Step 3. Test the indexing maps.
+  ArrayAttr indexingMaps = genericOp.getIndexingMaps();
+  if (indexingMaps.size() != 3) return false;
+
+  AffineMap map0 = cast<AffineMapAttr>(indexingMaps[0]).getValue();
+  AffineMap map1 = cast<AffineMapAttr>(indexingMaps[1]).getValue();
+  AffineMap map2 = cast<AffineMapAttr>(indexingMaps[2]).getValue();
+
+  if (map0.getNumResults() != 2 || map1.getNumResults() != 2 ||
+      map2.getNumResults() != 2 || map0.getNumInputs() != 3 ||
+      map1.getNumInputs() != 3 || map2.getNumInputs() != 3) {
+    return false;
+  }
+
+  // Extract dimensions for MxK * NxK -> MxN
+  AffineExpr m = map2.getResult(0);
+  AffineExpr n = map2.getResult(1);
+  AffineExpr k = map0.getResult(1);
+  auto *context = indexingMaps.getContext();
+  auto mapA = AffineMapAttr::get(AffineMap::get(3, 0, {m, k}, context));
+  auto mapB = AffineMapAttr::get(AffineMap::get(3, 0, {n, k}, context));
+  auto mapC = AffineMapAttr::get(AffineMap::get(3, 0, {m, n}, context));
+  auto maps = ArrayAttr::get(context, {mapA, mapB, mapC});
+  return indexingMaps == maps;
 }
 
 }  // namespace mlir::iree_compiler::AMDAIE

@@ -22,6 +22,9 @@ namespace mlir::iree_compiler {
 
 /// Helps in forming a `PackingConfigPackingLevelAttr`.
 AMDAIE::PackingConfigPackingLevelAttr getPackingConfigPackingLevelAttr(
+    MLIRContext *context, SmallVector<int64_t> &packedSizes);
+
+AMDAIE::PackingConfigPackingLevelAttr getPackingConfigPackingLevelAttr(
     MLIRContext *context, SmallVector<int64_t> &packedSizes,
     SmallVector<int64_t> &transposePackIndices, SmallVector<bool> &unpackEmpty,
     SmallVector<SmallVector<int64_t>> &innerPermVal,

@@ -11,6 +11,7 @@
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/Utils/CPUUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -228,74 +229,6 @@ static LogicalResult setRootConfigForPadPackPipeline(func::FuncOp entryPointFn,
   return success();
 }
 
-/// TODO(avarma): This currently is skipping checking for ext* ops.
-static bool bodyMatcherForMatmulTranspose(Value yieldVal, Block *body) {
-  Operation *addOp = yieldVal.getDefiningOp();
-  if (!isa_and_nonnull<arith::AddIOp, arith::AddFOp>(addOp)) {
-    return false;
-  }
-  Operation *mulOp = addOp->getOperand(1).getDefiningOp();
-  if (!isa_and_nonnull<arith::MulIOp, arith::MulFOp>(mulOp)) {
-    return false;
-  }
-  auto lhsBlockArg = mulOp->getOperand(0).dyn_cast<BlockArgument>();
-  auto rhsBlockArg = mulOp->getOperand(1).dyn_cast<BlockArgument>();
-  auto outBlockArg = addOp->getOperand(0).dyn_cast<BlockArgument>();
-  if (!lhsBlockArg || !rhsBlockArg || !outBlockArg ||
-      lhsBlockArg.getOwner() != body || rhsBlockArg.getOwner() != body ||
-      outBlockArg.getOwner() != body || lhsBlockArg.getArgNumber() != 0 ||
-      rhsBlockArg.getArgNumber() != 1 || outBlockArg.getArgNumber() != 2) {
-    return false;
-  }
-  return true;
-}
-
-/// `isMatmulTranspose` is a utility function that aims to indentify whether a
-/// linalg.generic op is a matmul transpose op.
-static bool isMatmulTranspose(linalg::GenericOp genericOp) {
-  // Step 1. Test the body of the generic to indeed be what we expect for a
-  //         matmul transpose.
-  Block *body = genericOp.getBlock();
-  auto yieldOp = cast<linalg::YieldOp>(body->getTerminator());
-  Value yieldVal = yieldOp.getOperand(0);
-  if (!bodyMatcherForMatmulTranspose(yieldVal, body)) {
-    return false;
-  }
-  // Step 2. Check iterator types.
-  SmallVector<utils::IteratorType> matmulTransposeIteratorTypes = {
-      utils::IteratorType::parallel, utils::IteratorType::parallel,
-      utils::IteratorType::reduction};
-  SmallVector<utils::IteratorType> opIteratorTypes =
-      genericOp.getIteratorTypesArray();
-  if (matmulTransposeIteratorTypes != opIteratorTypes) {
-    return false;
-  }
-  // Step 3. Test the indexing maps.
-  ArrayAttr indexingMaps = genericOp.getIndexingMaps();
-  if (indexingMaps.size() != 3) return false;
-
-  AffineMap map0 = cast<AffineMapAttr>(indexingMaps[0]).getValue();
-  AffineMap map1 = cast<AffineMapAttr>(indexingMaps[1]).getValue();
-  AffineMap map2 = cast<AffineMapAttr>(indexingMaps[2]).getValue();
-
-  if (map0.getNumResults() != 2 || map1.getNumResults() != 2 ||
-      map2.getNumResults() != 2 || map0.getNumInputs() != 3 ||
-      map1.getNumInputs() != 3 || map2.getNumInputs() != 3) {
-    return false;
-  }
-
-  // Extract dimensions for MxK * NxK -> MxN
-  AffineExpr m = map2.getResult(0);
-  AffineExpr n = map2.getResult(1);
-  AffineExpr k = map0.getResult(1);
-  auto *context = indexingMaps.getContext();
-  auto mapA = AffineMapAttr::get(AffineMap::get(3, 0, {m, k}, context));
-  auto mapB = AffineMapAttr::get(AffineMap::get(3, 0, {n, k}, context));
-  auto mapC = AffineMapAttr::get(AffineMap::get(3, 0, {m, n}, context));
-  auto maps = ArrayAttr::get(context, {mapA, mapB, mapC});
-  return indexingMaps == maps;
-}
-
 /// Sets the lowering configuration for a generic op implementing a
 /// transposition.
 static LogicalResult setTransposeLikeOpRootConfig(
@@ -308,6 +241,69 @@ static LogicalResult setTransposeLikeOpRootConfig(
   return linalgOp.emitOpError("unhandled pass pipeline");
 }
 
+/// Utility to check if an elementwise op is fusable with its producer.
+static bool isMatmulElementwiseFusion(linalg::GenericOp genericOp) {
+  // Check if any of the defining op is a matmul-like op. To simplify the
+  // problem, currently only check if it is a contraction op.
+  for (auto operand : genericOp.getOperands()) {
+    auto defOp = operand.getDefiningOp();
+    if (defOp &&
+        linalg::isaContractionOpInterface(cast<linalg::LinalgOp>(defOp))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// Sets the lowering configuration for a generic op which is an elementwise op
+/// and can be fused with its producer matmul-like op in the same dispatch.
+static LogicalResult setElementwiseFusionRootConfig(
+    func::FuncOp entryPointFn, linalg::LinalgOp linalgOp,
+    AIEPassPipeline usePassPipeline, AIEConfig cfg) {
+  if (usePassPipeline != AIEPassPipeline::PackPeelPipeline) return failure();
+
+  // ------------------------------------------------------
+  // -------------- Set lowering config -------------------
+  // ------------------------------------------------------
+  // Only set the first level of tiling and packing configs, and these configs
+  // should be consistent with the its producer's settings.
+  auto initType =
+      llvm::cast<ShapedType>(linalgOp.getDpsInitOperand(0)->get().getType());
+  auto initShape = initType.getShape();
+
+  FailureOr<unsigned> maybeTilingScaleFactor =
+      getTilingScaleFactor(initType.getElementType());
+  if (failed(maybeTilingScaleFactor)) {
+    return linalgOp.emitOpError("expected bitwidth 64/32/16/8");
+  }
+  unsigned tilingScaleFactor = maybeTilingScaleFactor.value();
+  auto tileM0 = findLargestFactor((int)initShape[0], 32 * tilingScaleFactor);
+  auto tileN0 = findLargestFactor((int)initShape[1], 32 * tilingScaleFactor);
+  SmallVector<int64_t> TileSizeLevel0 = {tileM0, tileN0};
+  TileSizesListType tileSizes = {TileSizeLevel0};
+  if (failed(setOpConfigAndEntryPointFnTranslation(
+          entryPointFn, linalgOp, tileSizes,
+          IREE::Codegen::DispatchLoweringPassPipeline::None))) {
+    return failure();
+  }
+
+  // ------------------------------------------------------
+  // --------------- Set packing config -------------------
+  // ------------------------------------------------------
+  MLIRContext *context = entryPointFn.getContext();
+  SmallVector<int64_t> packedSizes = {tileM0, tileN0};
+  auto packingConfigLevel1Attr =
+      getPackingConfigPackingLevelAttr(context, packedSizes);
+  SmallVector<PackingConfigPackingLevelAttr> packingConfigLevelsVal = {
+      packingConfigLevel1Attr};
+
+  auto packingConfigLevels =
+      PackingConfigPackingLevelsAttr::get(context, packingConfigLevelsVal);
+  auto config = PackingConfigAttr::get(context, packingConfigLevels);
+  setPackingConfig(linalgOp, config);
+  return success();
+}
+
 static LogicalResult setRootConfig(func::FuncOp entryPointFn,
                                    linalg::GenericOp genericOp,
                                    AIEPassPipeline usePassPipeline,
@@ -318,6 +314,12 @@ static LogicalResult setRootConfig(func::FuncOp entryPointFn,
   if (isMatmulTranspose(genericOp) &&
       succeeded(setTransposeLikeOpRootConfig(entryPointFn, genericOp,
                                              usePassPipeline, cfg))) {
+    return success();
+  }
+
+  if (isElementwise(genericOp) && isMatmulElementwiseFusion(genericOp) &&
+      succeeded(setElementwiseFusionRootConfig(entryPointFn, genericOp,
+                                               usePassPipeline, cfg))) {
     return success();
   }
 
@@ -386,8 +388,13 @@ static LogicalResult setTranslationInfoAndRootConfig(
     func::FuncOp entryPointFn, ArrayRef<Operation *> computeOps,
     AIEPassPipeline usePassPipeline, AIEConfig cfg) {
   // Make sure that lowering_config is not preset on any compute ops.
+  Operation *elementwiseOp = nullptr;
   for (auto computeOp : computeOps) {
     if (getLoweringConfig(computeOp)) return failure();
+    if (isa<linalg::GenericOp>(computeOp) &&
+        isElementwise(cast<linalg::LinalgOp>(computeOp))) {
+      elementwiseOp = computeOp;
+    }
   }
 
   FailureOr<Operation *> rootOp = getRootOperation(computeOps);
@@ -402,6 +409,14 @@ static LogicalResult setTranslationInfoAndRootConfig(
   if (failed(setRootConfigImpl(entryPointFn, rootOperation, usePassPipeline,
                                cfg))) {
     return failure();
+  }
+
+  // For matmul + elementwise ops fusion, also set configs for elementwise op.
+  if (elementwiseOp && elementwiseOp != rootOperation) {
+    if (failed(setRootConfigImpl(entryPointFn, elementwiseOp, usePassPipeline,
+                                 cfg))) {
+      return failure();
+    }
   }
 
   // TODO (nmeshram): // Set vector level tile sizes for other operations
