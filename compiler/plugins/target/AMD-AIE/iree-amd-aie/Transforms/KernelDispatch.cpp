@@ -11,7 +11,6 @@
 #include "iree/compiler/Codegen/Dialect/Codegen/IR/IREECodegenAttrs.h"
 #include "iree/compiler/Codegen/Utils/CPUUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -241,20 +240,6 @@ static LogicalResult setTransposeLikeOpRootConfig(
   return linalgOp.emitOpError("unhandled pass pipeline");
 }
 
-/// Utility to check if an elementwise op is fusable with its producer.
-static bool isMatmulElementwiseFusion(linalg::GenericOp genericOp) {
-  // Check if any of the defining op is a matmul-like op. To simplify the
-  // problem, currently only check if it is a contraction op.
-  for (auto operand : genericOp.getOperands()) {
-    auto defOp = operand.getDefiningOp();
-    if (defOp &&
-        linalg::isaContractionOpInterface(cast<linalg::LinalgOp>(defOp))) {
-      return true;
-    }
-  }
-  return false;
-}
-
 /// Sets the lowering configuration for a generic op which is an elementwise op
 /// and can be fused with its producer matmul-like op in the same dispatch.
 static LogicalResult setElementwiseFusionRootConfig(
@@ -265,8 +250,8 @@ static LogicalResult setElementwiseFusionRootConfig(
   // ------------------------------------------------------
   // -------------- Set lowering config -------------------
   // ------------------------------------------------------
-  // Only set the first level of tiling and packing configs, and these configs
-  // should be consistent with the its producer's settings.
+  // Only set the first level of lowering configs, and these configs should be
+  // consistent with the its producer's settings.
   auto initType =
       llvm::cast<ShapedType>(linalgOp.getDpsInitOperand(0)->get().getType());
   auto initShape = initType.getShape();
@@ -291,12 +276,27 @@ static LogicalResult setElementwiseFusionRootConfig(
   // --------------- Set packing config -------------------
   // ------------------------------------------------------
   MLIRContext *context = entryPointFn.getContext();
+  // Pack level => 1.
   SmallVector<int64_t> packedSizes = {tileM0, tileN0};
   auto packingConfigLevel1Attr =
       getPackingConfigPackingLevelAttr(context, packedSizes);
-  SmallVector<PackingConfigPackingLevelAttr> packingConfigLevelsVal = {
-      packingConfigLevel1Attr};
 
+  // Pack level => 2.
+  // packed size for [M, N, m, n]
+  SmallVector<int64_t> packedSizes2 = {0, 0, 4, 8};
+  // Transpose from [M N m n m0 n0] to [M N n m m0 n0]
+  SmallVector<int64_t> transposePackIndices = {0, 1, 2};
+  // Only the third pack operation has a corresponding unpack operation
+  SmallVector<bool> unpackEmpty = {false, false, true};
+  SmallVector<SmallVector<int64_t>> innerPerm = {{0, 1}, {0, 1}, {0, 1}};
+  SmallVector<SmallVector<int64_t>> outerPerm = {
+      {0, 1, 3, 2}, {0, 1, 3, 2}, {0, 1, 3, 2}};
+  auto packingConfigLevel2Attr = getPackingConfigPackingLevelAttr(
+      context, packedSizes2, transposePackIndices, unpackEmpty, innerPerm,
+      outerPerm);
+
+  SmallVector<PackingConfigPackingLevelAttr> packingConfigLevelsVal = {
+      packingConfigLevel1Attr, packingConfigLevel2Attr};
   auto packingConfigLevels =
       PackingConfigPackingLevelsAttr::get(context, packingConfigLevelsVal);
   auto config = PackingConfigAttr::get(context, packingConfigLevels);
@@ -317,11 +317,13 @@ static LogicalResult setRootConfig(func::FuncOp entryPointFn,
     return success();
   }
 
-  if (isElementwise(genericOp) && isMatmulElementwiseFusion(genericOp) &&
+  linalg::LinalgOp producerOp;
+  if (isMatmulElementwiseFusion(genericOp, producerOp) &&
       succeeded(setElementwiseFusionRootConfig(entryPointFn, genericOp,
                                                usePassPipeline, cfg))) {
     return success();
   }
+  // TODO (vivian) : Add function to set configs for elementwise only dispatch.
 
   return failure();
 }

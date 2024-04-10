@@ -103,37 +103,42 @@ void AMDAIETileAndFusePass::runOnOperation() {
   func::FuncOp funcOp = getOperation();
 
   TilingInterface consumerOp;
+  SmallVector<int64_t> tileSizesVal;
   funcOp->walk<WalkOrder::PostOrder, ReverseIterator>([&](TilingInterface op) {
     // Find the next consumer op if it does not have loops OR it is from
     // the skip ops list which currently contains linalg.copy and tensor.unpack.
     if (op.getLoopIteratorTypes().empty() || consumerToSkip(op))
       return WalkResult::advance();
+
+    // TODO(avarma): Have a global CONSTANT defining tiling stages and the
+    // tiling strategy.
+    // If `consumerOp` has its own lowering config, we prefer using it.
+    // Otherwise, fallback to find a lowering_config from other operations.
+    //    llvm::outs() << "here0" << "\n";
+    //    llvm::outs() << op << "\n";
+    if (auto loweringConfig = getLoweringConfig(op)) {
+      tileSizesVal = loweringConfig.getTileSizeVals(tilingLevel);
+    } else {
+      FailureOr<IREE::Codegen::LoweringConfigAttr> maybeLoweringConfig =
+          getLoweringConfig(getComputeOps(funcOp));
+      if (failed(maybeLoweringConfig)) {
+        return WalkResult::advance();
+      }
+      tileSizesVal = maybeLoweringConfig.value().getTileSizeVals(tilingLevel);
+    }
+    if (tileSizesVal.empty()) return WalkResult::advance();
+
     consumerOp = op;
     return WalkResult::interrupt();
   });
+
+  // llvm::outs() << "here" << consumerOp << "\n";
   if (!consumerOp) {
     LLVM_DEBUG(llvm::dbgs() << "----- skip, no consumer op -----\n");
     return;
   }
-  LLVM_DEBUG(llvm::dbgs() << "consumerOp: " << consumerOp << "\n");
-  LLVM_DEBUG(llvm::dbgs() << "tilingLevel: " << tilingLevel << "\n");
-  // TODO(avarma): Have a global CONSTANT defining tiling stages and the
-  // tiling strategy.
-  // If `consumerOp` has its own lowering config, we prefer using it.
-  // Otherwise, fallback to find a lowering_config from other operations.
-  SmallVector<int64_t> tileSizesVal;
-  if (auto loweringConfig = getLoweringConfig(consumerOp)) {
-    tileSizesVal = loweringConfig.getTileSizeVals(tilingLevel);
-  } else {
-    FailureOr<IREE::Codegen::LoweringConfigAttr> maybeLoweringConfig =
-        getLoweringConfig(getComputeOps(funcOp));
-    if (failed(maybeLoweringConfig)) {
-      LLVM_DEBUG(llvm::dbgs()
-                 << "can't find lowering_config, skip TileAndFuse");
-      return;
-    }
-    tileSizesVal = maybeLoweringConfig.value().getTileSizeVals(tilingLevel);
-  }
+  //LLVM_DEBUG(llvm::dbgs() << "consumerOp: " << consumerOp << "\n");
+  //LLVM_DEBUG(llvm::dbgs() << "tilingLevel: " << tilingLevel << "\n");
 
   if (llvm::all_of(tileSizesVal, [&](int64_t size) { return size == 0; })) {
     LLVM_DEBUG(llvm::dbgs() << "----- skip, all zeros -----\n");

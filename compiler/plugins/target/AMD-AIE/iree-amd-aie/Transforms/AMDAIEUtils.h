@@ -10,6 +10,7 @@
 #include <array>
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/Linalg/Utils/Utils.h"
 #include "mlir/IR/Types.h"
 
 namespace mlir::iree_compiler::AMDAIE {
@@ -69,6 +70,11 @@ FailureOr<unsigned> getTilingScaleFactor(Type elemType);
 /// Utility function that aims to indentify whether a linalg.generic op is a
 /// matmul transpose op.
 bool isMatmulTranspose(linalg::GenericOp genericOp);
+
+/// Utility to check if a generic op is an elementwise op and if can be fused
+/// with its producer.
+bool isMatmulElementwiseFusion(linalg::GenericOp genericOp,
+                               linalg::LinalgOp &producerOp);
 
 namespace detail {
 

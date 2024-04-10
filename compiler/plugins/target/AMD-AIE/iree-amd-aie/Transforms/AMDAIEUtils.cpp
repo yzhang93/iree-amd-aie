@@ -8,6 +8,7 @@
 
 #include "llvm/ADT/DenseMap.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinTypes.h"
 
 namespace mlir::iree_compiler::AMDAIE {
@@ -202,6 +203,29 @@ bool isMatmulTranspose(linalg::GenericOp genericOp) {
   auto mapC = AffineMapAttr::get(AffineMap::get(3, 0, {m, n}, context));
   auto maps = ArrayAttr::get(context, {mapA, mapB, mapC});
   return indexingMaps == maps;
+}
+
+/// Utility to check if a generic op is an elementwise op and if can be fused
+/// with its producer.
+bool isMatmulElementwiseFusion(linalg::GenericOp genericOp,
+                               linalg::LinalgOp &producerOp) {
+  if (!isElementwise(genericOp)) return false;
+  // Check if any of the defining op is a matmul-like op. To simplify the
+  // problem, currently only check if it is a contraction op.
+  for (auto operand : genericOp.getOperands()) {
+    while (Operation *defOp = operand.getDefiningOp()) {
+      auto linalgOp = dyn_cast_or_null<linalg::LinalgOp>(defOp);
+      if (linalgOp) {
+        if (linalg::isaContractionOpInterface(linalgOp)) {
+          producerOp = linalgOp;
+          return true;
+        }
+        break;
+      }
+      operand = defOp->getOperand(0);
+    }
+  }
+  return false;
 }
 
 }  // namespace mlir::iree_compiler::AMDAIE
