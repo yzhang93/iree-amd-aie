@@ -55,8 +55,6 @@ class AMDAIEVectorizationPass
   }
 };
 
-
-
 void AMDAIEVectorizationPass::runOnOperation() {
   MLIRContext *context = &getContext();
   auto funcOp = getOperation();
@@ -66,7 +64,6 @@ void AMDAIEVectorizationPass::runOnOperation() {
   // Collect all operations which must be vectorized.
   SmallVector<Operation *> candidates;
   funcOp.walk([&](Operation *op) {
-
     // Only vectorize linalg ops (for now)
     if (!isa<linalg::LinalgOp>(op)) return;
 

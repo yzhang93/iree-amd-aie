@@ -20,7 +20,6 @@ extern "C" {
 // iree_hal_xrt_device_params_t
 //===----------------------------------------------------------------------===//
 
-
 // Parameters configuring an iree_hal_xrt_device_t.
 // Must be initialized with iree_hal_xrt_device_params_initialize prior to
 // use.

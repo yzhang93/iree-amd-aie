@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "iree-amd-aie/IR/AMDAIEOps.h"
+
 #include "iree-amd-aie/IR/AMDAIEDialect.h"
 #include "llvm/ADT/TypeSwitch.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -29,8 +30,7 @@ void AMDAIEDialect::initializeAMDAIEOps() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult DmaCpyNdOp::verify() {
-  if (failed(verifyCommon()))
-    return failure();
+  if (failed(verifyCommon())) return failure();
   return success();
 }
 

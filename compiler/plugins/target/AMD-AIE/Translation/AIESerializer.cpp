@@ -55,10 +55,8 @@ static int64_t getLinearizedSize(SmallVector<int64_t> &shape) {
 
 /// Translate the memory space into shared / local.
 static FailureOr<std::string> translateMemorySpace(IntegerAttr memorySpace) {
-  if (isConstantIntValue(memorySpace, 1))
-    return std::string("shared");
-  if (isConstantIntValue(memorySpace, 2))
-    return std::string("local");
+  if (isConstantIntValue(memorySpace, 1)) return std::string("shared");
+  if (isConstantIntValue(memorySpace, 2)) return std::string("local");
   return failure();
 }
 
@@ -315,8 +313,7 @@ FailureOr<std::string> getString(OpFoldResult ofr,
         return affineOp.emitOpError("failed to apply affine expr");
       }
       return exprStr.value();
-    }
-    else if (auto val = dyn_cast<arith::ConstantIntOp>(v.getDefiningOp())) {
+    } else if (auto val = dyn_cast<arith::ConstantIntOp>(v.getDefiningOp())) {
       return std::to_string(val.value());
     }
   }
@@ -774,8 +771,8 @@ LogicalResult AccelSerializer::processOperation(memref::AllocOp allocOp,
   if (failed(typeStr)) {
     return allocOp->emitOpError("unhandled element type");
   }
-  argStr += std::string(": Pointer(") + memorySpace.value() + " " + typeStr.value() +
-            "), " + typeStr.value() + ", [";
+  argStr += std::string(": Pointer(") + memorySpace.value() + " " +
+            typeStr.value() + "), " + typeStr.value() + ", [";
 
   SmallVector<int64_t> shape = llvm::to_vector(allocOp.getType().getShape());
   argStr += std::to_string(getLinearizedSize(shape)) +
@@ -1018,7 +1015,7 @@ LogicalResult AccelSerializer::processOperation(
 
   // Add attribute to the buffer depending on whether it's in shared memory or
   // local memory
-  std::string loadType = "bidirectional";  
+  std::string loadType = "bidirectional";
   auto rawMemorySpace = srcType.getMemorySpace().dyn_cast<IntegerAttr>();
   if (rawMemorySpace) {
     FailureOr<std::string> memorySpace = translateMemorySpace(rawMemorySpace);

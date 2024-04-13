@@ -102,7 +102,7 @@ FailureOr<std::array<uint32_t, 3>> getAIEMatmulInstructionSize(Type elTypeLhs,
 
 FailureOr<unsigned> getTilingScaleFactor(Type elemType) {
   unsigned bitWidth = elemType.getIntOrFloatBitWidth();
-  if (bitWidth %8 != 0) return failure();
+  if (bitWidth % 8 != 0) return failure();
   if (bitWidth > 64) return failure();
   return 64 / bitWidth;
 }

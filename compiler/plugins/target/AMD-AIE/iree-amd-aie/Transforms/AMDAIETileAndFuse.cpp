@@ -19,7 +19,6 @@
 
 #define DEBUG_TYPE "iree-amdaie-tile-and-fuse"
 
-
 namespace mlir::iree_compiler::AMDAIE {
 
 namespace {

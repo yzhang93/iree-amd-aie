@@ -171,7 +171,7 @@ iree_status_t iree_hal_xrt_pipeline_layout_create(
     base_index +=
         iree_hal_xrt_descriptor_set_layout_binding_count(set_layouts[i]);
   }
-    *out_pipeline_layout = (iree_hal_pipeline_layout_t*)pipeline_layout;
+  *out_pipeline_layout = (iree_hal_pipeline_layout_t*)pipeline_layout;
   IREE_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }

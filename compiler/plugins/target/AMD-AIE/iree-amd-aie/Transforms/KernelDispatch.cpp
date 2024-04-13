@@ -23,8 +23,8 @@ using detail::findLargestFactor;
 static SmallVector<int64_t> getPackedSize(linalg::LinalgOp linalgOp,
                                           const int packLevel, int m = 0,
                                           int n = 0, int k = 0) {
-  // TODO (newling): consider emiting an error/warning if the default sizes are used as a
-  // fallback.
+  // TODO (newling): consider emiting an error/warning if the default sizes are
+  // used as a fallback.
   SmallVector<int64_t> defaultSizes;
   // TODO (nmeshram) : We should not need this and be able to fix the pack
   // config after we have padding support

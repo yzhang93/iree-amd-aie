@@ -6,12 +6,12 @@
 
 #include "iree-amd-aie/IR/AMDAIEDialect.h"
 
+#include <numeric>
+
 #include "iree-amd-aie/IR/AMDAIEAttrs.h"
 #include "iree-amd-aie/IR/AMDAIEDialect.cpp.inc"
 #include "iree-amd-aie/IR/AMDAIETypes.cpp.inc"
 #include "mlir/IR/DialectImplementation.h"
-
-#include <numeric>
 
 namespace mlir::iree_compiler::AMDAIE {
 
@@ -42,7 +42,7 @@ static OptionalParseResult amdaieTypeParser(DialectAsmParser &parser,
     auto loc = parser.getEncodedSourceLoc(typeLoc);
     result = AMDAIELogicalObjectFifoType::get(loc, elementType);
     if (!result) return failure();
-    
+
     return success();
   }
   return {};
