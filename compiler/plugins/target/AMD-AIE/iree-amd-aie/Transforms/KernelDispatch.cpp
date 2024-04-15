@@ -92,7 +92,7 @@ static LogicalResult setRootConfigForPackPeelPipeline(func::FuncOp entryPointFn,
   MLIRContext *context = entryPointFn.getContext();
   // Pack level => 1.
   auto packedK0 = findLargestFactor((int)lhsShape[1], 16 * tilingScaleFactor);
-  SmallVector<int64_t> packedSizes = {tileM0, tileN0, packedK0};
+  SmallVector<int64_t> packedSizes = {tileM0 / 2, tileN0 / 2, packedK0};
   // Transpose B matrix from [K N n k] to [K N k n]
   SmallVector<int64_t> transposePackIndices = {1};
   // There is no corresponding unpack for the specified pack operation
@@ -130,22 +130,10 @@ static LogicalResult setRootConfigForPackPeelPipeline(func::FuncOp entryPointFn,
   // ------------------------------------------------------
   // -------------- Set lowering config -------------------
   // ------------------------------------------------------
-  // Currently, assume working on a 2x2 AIE array, so the second level tile
-  // sizes should be (tileM0/2, tileN0/2). Considering the packing sizes, the
-  // adjusted tile sizes should be (tileM0/2/packedM1, tileN0/2/packedN1).
-  auto packedM1 = packedSizes[3];
-  auto packedN1 = packedSizes[4];
-  auto tileM1 = findLargestFactor((int)tileM0 / packedM1,
-                                  16 * tilingScaleFactor / packedM1);
-  auto tileN1 = findLargestFactor((int)tileN0 / packedN1,
-                                  16 * tilingScaleFactor / packedN1);
-  // Set tile size for K as constant 1, so that the packed outer K dimension
-  // is 1.
-  const int tileK = 1;
-
+  // Set second level tile sizes for outer dimensions as 1.
   SmallVector<int64_t> TileSizeLevel0 = {tileM0, tileN0};
-  SmallVector<int64_t> TileSizeLevel1 = {0, 0, tileK};
-  SmallVector<int64_t> TileSizeLevel2 = {0, 0, 0, tileM1, tileN1, 0};
+  SmallVector<int64_t> TileSizeLevel1 = {0, 0, 1};
+  SmallVector<int64_t> TileSizeLevel2 = {1, 1, 0};
   TileSizesListType tileSizes = {TileSizeLevel0, TileSizeLevel1,
                                  TileSizeLevel2};
   if (failed(setOpConfigAndEntryPointFnTranslation(
