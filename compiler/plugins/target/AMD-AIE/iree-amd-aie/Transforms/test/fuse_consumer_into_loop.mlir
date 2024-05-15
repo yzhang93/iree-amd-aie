@@ -1,71 +1,128 @@
-// RUN: iree-opt --split-input-file --pass-pipeline='builtin.module(func.func(iree-amdaie-fuse-consumer-into-loop))' %s | FileCheck %s --check-prefix=FORALL
-// RUN: iree-opt --split-input-file --pass-pipeline='builtin.module(func.func(iree-amdaie-fuse-consumer-into-loop{use-scf-for=true}))' %s | FileCheck %s --check-prefix=FOR
+// RUN: iree-opt --split-input-file --pass-pipeline='builtin.module(func.func(iree-amdaie-fuse-consumer-into-loop{fuse-depth=1}))' %s | FileCheck %s --check-prefix=FORALL-DEPTH-1
+// RUN: iree-opt --split-input-file --pass-pipeline='builtin.module(func.func(iree-amdaie-fuse-consumer-into-loop{fuse-depth=2}))' %s | FileCheck %s --check-prefix=FORALL-DEPTH-2
+// RUN: iree-opt --split-input-file --pass-pipeline='builtin.module(func.func(iree-amdaie-fuse-consumer-into-loop{fuse-depth=1 use-scf-for=true}))' %s | FileCheck %s --check-prefix=FOR
 
-// FORALL-LABEL: @fuse_consumer_into_scfforall
-#map = affine_map<(d0, d1) -> (d0, d1)>
-func.func @fuse_consumer_into_scfforall(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>, %arg2: tensor<64x64xf32>) -> tensor<64x64xf32> {
-    %c4 = arith.constant 4 : index
-    %c64 = arith.constant 64 : index
-    %c0 = arith.constant 0 : index
-    %0 = scf.forall (%arg3, %arg4) in (2, 2) shared_outs(%arg5 = %arg2) -> (tensor<64x64xf32>) {
-        %1 = scf.forall (%arg6, %arg7) in (2, 2) shared_outs(%arg8 = %arg5) -> (tensor<64x64xf32>) {
-            %extracted_slice = tensor.extract_slice %arg8[%arg6, %arg7] [32, 32] [1, 1] : tensor<64x64xf32> to tensor<32x32xf32>
-            %6 = linalg.matmul ins(%arg0, %arg1 : tensor<32x32xf32>, tensor<32x32xf32>) outs(%extracted_slice : tensor<32x32xf32>) -> tensor<32x32xf32>
-            scf.forall.in_parallel {
-                tensor.parallel_insert_slice %6 into %arg8[%arg6, %arg7] [32, 32] [1, 1] : tensor<32x32xf32> into tensor<64x64xf32>
-            }
-        }
-        %2 = scf.forall (%arg6, %arg7) in (2, 2) shared_outs(%arg8 = %1) -> (tensor<64x64xf32>) {
-            %extracted_slice = tensor.extract_slice %arg8[%arg6, %arg7] [32, 32] [1, 1] : tensor<64x64xf32> to tensor<32x32xf32>
-            %6 = linalg.matmul ins(%arg0, %arg1 : tensor<32x32xf32>, tensor<32x32xf32>) outs(%extracted_slice : tensor<32x32xf32>) -> tensor<32x32xf32>
-            scf.forall.in_parallel {
-                tensor.parallel_insert_slice %6 into %arg8[%arg6, %arg7] [32, 32] [1, 1] : tensor<32x32xf32> into tensor<64x64xf32>
-            }
-        }
-        %3 = tensor.empty() : tensor<64x64xf32>
-        %4 = tensor.empty() : tensor<64x64xf32>
-        %5 = linalg.generic {indexing_maps = [#map, #map, #map], iterator_types = ["parallel", "parallel"]} ins(%2, %3 : tensor<64x64xf32>, tensor<64x64xf32>) outs(%4 : tensor<64x64xf32>) {
-        ^bb0(%in: f32, %in_25: f32, %out: f32):
-            %21 = arith.addf %in, %in_25 : f32
-            linalg.yield %21 : f32
-        } -> tensor<64x64xf32>
+#map = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8) -> (d0, d2, d5, d3, d6, d8)>
+#map1 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8) -> (d2, d1, d4, d5, d8, d7)>
+#map2 = affine_map<(d0, d1, d2, d3, d4, d5, d6, d7, d8) -> (d0, d1, d4, d3, d6, d7)>
+#map3 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d1, d2, d3, d4, d5)>
+module {
+  func.func @fuse_consumer_into_scfforall(%arg0: tensor<1x1x4x8x4x8xi8>, %arg1: tensor<1x1x4x4x8x8xi8>, %arg2: tensor<1x1x8x16x4x8xi32>, %arg3: tensor<1024x1024xi32>) -> tensor<1024x1024xi32> {
+    %0 = scf.forall (%arg4, %arg5) in (2, 2) shared_outs(%arg6 = %arg3) -> (tensor<1024x1024xi32>) {
+      %1 = scf.forall (%arg7, %arg8) in (2, 2) shared_outs(%arg9 = %arg2) -> (tensor<1x1x8x16x4x8xi32>) {
+        %extracted_slice = tensor.extract_slice %arg9[0, 0, %arg8, %arg7, 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1] : tensor<1x1x8x16x4x8xi32> to tensor<1x1x4x8x4x8xi32>
+        %7 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "reduction", "parallel", "parallel", "reduction", "parallel", "parallel", "reduction"]} ins(%arg0, %arg1 : tensor<1x1x4x8x4x8xi8>, tensor<1x1x4x4x8x8xi8>) outs(%extracted_slice : tensor<1x1x4x8x4x8xi32>) {
+        ^bb0(%in: i8, %in_1: i8, %out: i32):
+          %8 = arith.extsi %in : i8 to i32
+          %9 = arith.extsi %in_1 : i8 to i32
+          %10 = arith.muli %8, %9 : i32
+          %11 = arith.addi %out, %10 : i32
+          linalg.yield %11 : i32
+        } -> tensor<1x1x4x8x4x8xi32>
         scf.forall.in_parallel {
-            tensor.parallel_insert_slice %5 into %arg5[%arg3, %arg4] [64, 64] [1, 1] : tensor<64x64xf32> into tensor<64x64xf32>
+          tensor.parallel_insert_slice %7 into %arg9[0, 0, %arg8, %arg7, 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1] : tensor<1x1x4x8x4x8xi32> into tensor<1x1x8x16x4x8xi32>
         }
+      }
+      %2 = scf.forall (%arg7, %arg8) in (2, 2) shared_outs(%arg9 = %1) -> (tensor<1x1x8x16x4x8xi32>) {
+        %extracted_slice = tensor.extract_slice %arg9[0, 0, %arg8, %arg7, 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1] : tensor<1x1x8x16x4x8xi32> to tensor<1x1x4x8x4x8xi32>
+        %7 = linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "reduction", "parallel", "parallel", "reduction", "parallel", "parallel", "reduction"]} ins(%arg0, %arg1 : tensor<1x1x4x8x4x8xi8>, tensor<1x1x4x4x8x8xi8>) outs(%extracted_slice : tensor<1x1x4x8x4x8xi32>) {
+        ^bb0(%in: i8, %in_1: i8, %out: i32):
+          %8 = arith.extsi %in : i8 to i32
+          %9 = arith.extsi %in_1 : i8 to i32
+          %10 = arith.muli %8, %9 : i32
+          %11 = arith.addi %out, %10 : i32
+          linalg.yield %11 : i32
+        } -> tensor<1x1x4x8x4x8xi32>
+        scf.forall.in_parallel {
+          tensor.parallel_insert_slice %7 into %arg9[0, 0, %arg8, %arg7, 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1] : tensor<1x1x4x8x4x8xi32> into tensor<1x1x8x16x4x8xi32>
+        }
+      }
+      %3 = tensor.empty() : tensor<1x1x8x16x4x8xi32>
+      %4 = tensor.empty() : tensor<64x64xi32>
+      %5 = tensor.empty() : tensor<1x1x64x64xi32>
+      %6 = linalg.generic {indexing_maps = [#map3, #map3, #map3], iterator_types = ["parallel", "parallel", "parallel", "parallel", "parallel", "parallel"]} ins(%2, %3 : tensor<1x1x8x16x4x8xi32>, tensor<1x1x8x16x4x8xi32>) outs(%3 : tensor<1x1x8x16x4x8xi32>) {
+      ^bb0(%in: i32, %in_1: i32, %out: i32):
+        %7 = arith.addi %in, %in_1 : i32
+        linalg.yield %7 : i32
+      } -> tensor<1x1x8x16x4x8xi32>
+      %unpack = tensor.unpack %6 outer_dims_perm = [0, 1, 3, 2] inner_dims_pos = [2, 3] inner_tiles = [4, 8] into %5 : tensor<1x1x8x16x4x8xi32> -> tensor<1x1x64x64xi32>
+      %unpack_0 = tensor.unpack %unpack inner_dims_pos = [0, 1] inner_tiles = [64, 64] into %4 : tensor<1x1x64x64xi32> -> tensor<64x64xi32>
+      scf.forall.in_parallel {
+        tensor.parallel_insert_slice %unpack_0 into %arg6[%arg4, %arg5] [64, 64] [1, 1] : tensor<64x64xi32> into tensor<1024x1024xi32>
+      }
     }
-    return %0 : tensor<64x64xf32>
+    return %0 : tensor<1024x1024xi32>
+  }
 }
-//      FORALL:   %[[FINAL:.*]] = scf.forall
-// FORALL-SAME:                         shared_outs(%[[ITER_ARG_FINAL:.*]] = %{{.*}})
-//      FORALL:   {
-//      FORALL:       %[[FIRST_LOOP:.*]] = scf.forall
-//      FORALL:       {
-//      FORALL:       }
-//      FORALL:       %[[ELEM_OPERAND_2:.*]] = tensor.empty() : tensor<64x64xf32>
-//      FORALL:       %[[ELEM_OUT:.*]] = tensor.empty() : tensor<64x64xf32>
-//      FORALL:       %[[SECOND_LOOP:.*]]:2 = scf.forall (%[[IV0:.*]], %[[IV1:.*]]) in (2, 2) shared_outs(%[[ITER_ARG_1:.*]] = %[[FIRST_LOOP]], %[[ITER_ARG_2:.*]] = %[[ELEM_OUT]])
-//      FORALL:       {
-//      FORALL:            %[[MATMUL:.*]] = linalg.matmul
-//      FORALL:            %[[OPERAND1:.*]] = tensor.extract_slice %[[MATMUL]][%[[IV0]], %[[IV1]]] [32, 32] [1, 1]
-//      FORALL:            %[[OPERAND2:.*]] = tensor.extract_slice %[[ELEM_OPERAND_2]][%[[IV0]], %[[IV1]]] [32, 32] [1, 1]
-//      FORALL:            %[[OPERAND3:.*]] = tensor.extract_slice %[[ITER_ARG_2]][%[[IV0]], %[[IV1]]] [32, 32] [1, 1]
-//      FORALL:            %[[FUSED_CONSUMER:.*]] = linalg.generic
-// FORALL-SAME:                                         ins(%[[OPERAND1]], %[[OPERAND2]] :
-// FORALL-SAME:                                         outs(%[[OPERAND3]] :
-//      FORALL:                                    {
-//      FORALL:                                         arith.addf   
-//      FORALL:                                    }
-//      FORALL:            scf.forall.in_parallel {
-//      FORALL:                 tensor.parallel_insert_slice %[[FUSED_CONSUMER]] into %[[ITER_ARG_2]][%[[IV0]], %[[IV1]]] [32, 32] [1, 1]
-//      FORALL:                 tensor.parallel_insert_slice %[[MATMUL]] into %[[ITER_ARG_1]][%[[IV0]], %[[IV1]]] [32, 32] [1, 1]
-//      FORALL:            }
-//      FORALL:        }
-//      FORALL:        scf.forall.in_parallel
-//      FORALL:             tensor.parallel_insert_slice %[[SECOND_LOOP]]#1 into %[[ITER_ARG_FINAL]]
-//      FORALL:        }
-//      FORALL:   }
-//      FORALL:   return %[[FINAL]]
-                
+//      FORALL-DEPTH-1:   %[[FINAL:.*]] = scf.forall
+// FORALL-DEPTH-1-SAME:                         shared_outs(%[[ITER_ARG_FINAL:.*]] = %{{.*}})
+//      FORALL-DEPTH-1:   {
+//      FORALL-DEPTH-1:       %[[FIRST_LOOP:.*]] = scf.forall
+//      FORALL-DEPTH-1:       {
+//      FORALL-DEPTH-1:       }
+//      FORALL-DEPTH-1:       %[[ELEM_OUT:.*]] = tensor.empty() : tensor<1x1x8x16x4x8xi32>
+//      FORALL-DEPTH-1:       %[[SECOND_UNPACK_OUT:.*]] = tensor.empty() : tensor<64x64xi32>
+//      FORALL-DEPTH-1:       %[[UNPACK_OUT:.*]] = tensor.empty() : tensor<1x1x64x64xi32>
+//      FORALL-DEPTH-1:       %[[SECOND_LOOP:.*]]:2 = scf.forall (%[[IV0:.*]], %[[IV1:.*]]) in (2, 2) shared_outs(%[[ITER_ARG_1:.*]] = %[[FIRST_LOOP]], %[[ITER_ARG_2:.*]] = %[[ELEM_OUT]])
+//      FORALL-DEPTH-1:       {
+//      FORALL-DEPTH-1:            %[[MATMUL:.*]] = linalg.generic
+//      FORALL-DEPTH-1:            %[[OPERAND1:.*]] = tensor.extract_slice %[[MATMUL]][0, 0, %[[IV1]], %[[IV0]], 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1]
+//      FORALL-DEPTH-1:            %[[OPERAND2:.*]] = tensor.extract_slice %[[ELEM_OUT]][0, 0, %[[IV1]], %[[IV0]], 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1]
+//      FORALL-DEPTH-1:            %[[OPERAND3:.*]] = tensor.extract_slice %[[ITER_ARG_2]][0, 0, %[[IV1]], %[[IV0]], 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1]
+//      FORALL-DEPTH-1:            %[[FUSED_CONSUMER:.*]] = linalg.generic
+// FORALL-DEPTH-1-SAME:                                         ins(%[[OPERAND1]], %[[OPERAND2]] :
+// FORALL-DEPTH-1-SAME:                                         outs(%[[OPERAND3]] :
+//      FORALL-DEPTH-1:                                    {
+//      FORALL-DEPTH-1:                                         arith.addi  
+//      FORALL-DEPTH-1:                                    }
+//      FORALL-DEPTH-1:            scf.forall.in_parallel {
+//      FORALL-DEPTH-1:                 tensor.parallel_insert_slice %[[FUSED_CONSUMER]] into %[[ITER_ARG_2]][0, 0, %[[IV1]], %[[IV0]], 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1]
+//      FORALL-DEPTH-1:                 tensor.parallel_insert_slice %[[MATMUL]] into %[[ITER_ARG_1]][0, 0, %[[IV1]], %[[IV0]], 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1]
+//      FORALL-DEPTH-1:            }
+//      FORALL-DEPTH-1:        }
+//      FORALL-DEPTH-1:        %[[FIRST_UNPACK:.*]] = tensor.unpack %[[SECOND_LOOP]]#1 outer_dims_perm = [0, 1, 3, 2] inner_dims_pos = [2, 3] inner_tiles = [4, 8] into %[[UNPACK_OUT]]
+//      FORALL-DEPTH-1:        %[[SECOND_UNPACK:.*]] = tensor.unpack %[[FIRST_UNPACK]] inner_dims_pos = [0, 1] inner_tiles = [64, 64] into %[[SECOND_UNPACK_OUT]] :
+//      FORALL-DEPTH-1:        scf.forall.in_parallel
+//      FORALL-DEPTH-1:             tensor.parallel_insert_slice %[[SECOND_UNPACK]] into %[[ITER_ARG_FINAL]]
+//      FORALL-DEPTH-1:        }
+//      FORALL-DEPTH-1:   }
+//      FORALL-DEPTH-1:   return %[[FINAL]]
+
+//      FORALL-DEPTH-2: #[[UNPACK_RESULT_MAP0:.*]] = affine_map<(d0) -> (d0 * 4)>
+//      FORALL-DEPTH-2: #[[UNPACK_RESULT_MAP1:.*]] = affine_map<(d0) -> (d0 * 8)>
+//      FORALL-DEPTH-2:   %[[FINAL:.*]] = scf.forall
+// FORALL-DEPTH-2-SAME:                         shared_outs(%[[ITER_ARG_FINAL:.*]] = %{{.*}})
+//      FORALL-DEPTH-2:   {
+//      FORALL-DEPTH-2:       %[[FIRST_LOOP:.*]] = scf.forall
+//      FORALL-DEPTH-2:       {
+//      FORALL-DEPTH-2:       }
+//      FORALL-DEPTH-2:       %[[ELEM_OUT:.*]] = tensor.empty() : tensor<1x1x8x16x4x8xi32>
+//      FORALL-DEPTH-2:       %[[SECOND_UNPACK_OUT:.*]] = tensor.empty() : tensor<64x64xi32>
+//      FORALL-DEPTH-2:       %[[UNPACK_OUT:.*]] = tensor.empty() : tensor<1x1x64x64xi32>
+//      FORALL-DEPTH-2:       %[[SECOND_LOOP:.*]]:3 = scf.forall (%[[IV0:.*]], %[[IV1:.*]]) in (2, 2) shared_outs(%[[ITER_ARG_1:.*]] = %[[FIRST_LOOP]], %[[ITER_ARG_2:.*]] = %[[ELEM_OUT]], %[[ITER_ARG_3:.*]] = %[[UNPACK_OUT]])
+//      FORALL-DEPTH-2:       {
+//      FORALL-DEPTH-2:            %[[MATMUL:.*]] = linalg.generic
+//      FORALL-DEPTH-2:            %[[FUSED_CONSUMER:.*]] = linalg.generic
+//      FORALL-DEPTH-2:            %[[iv0:.*]] = affine.apply #[[UNPACK_RESULT_MAP0]](%[[IV0]])
+//      FORALL-DEPTH-2:            %[[iv1:.*]] = affine.apply #[[UNPACK_RESULT_MAP1]](%[[IV1]])
+//      FORALL-DEPTH-2:            %[[TILED_UNPACK_DEST:.*]] = tensor.extract_slice %[[ITER_ARG_3]][0, 0, %[[iv0]], %[[iv1]]] [1, 1, 32, 32] [1, 1, 1, 1]
+//      FORALL-DEPTH-2:            %[[TILED_UNPACK_SRC:.*]] = tensor.extract_slice %[[FUSED_CONSUMER]][0, 0, %[[IV1]], %[[IV0]], 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1]
+//      FORALL-DEPTH-2:            %[[TILED_UNPACK:.*]] = tensor.unpack %[[TILED_UNPACK_SRC]] outer_dims_perm = [0, 1, 3, 2] inner_dims_pos = [2, 3] inner_tiles = [4, 8] into %[[TILED_UNPACK_DEST]]
+//      FORALL-DEPTH-2:            %[[iv0:.*]] = affine.apply #[[UNPACK_RESULT_MAP0]](%[[IV0]])
+//      FORALL-DEPTH-2:            %[[iv1:.*]] = affine.apply #[[UNPACK_RESULT_MAP1]](%[[IV1]])
+//      FORALL-DEPTH-2:            scf.forall.in_parallel {
+//      FORALL-DEPTH-2:                 tensor.parallel_insert_slice %[[TILED_UNPACK]] into %[[ITER_ARG_3]][0, 0, %[[iv0]], %[[iv1]]] [1, 1, 32, 32] [1, 1, 1, 1]
+//      FORALL-DEPTH-2:                 tensor.parallel_insert_slice %[[FUSED_CONSUMER]] into %[[ITER_ARG_2]][0, 0, %[[IV1]], %[[IV0]], 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1]
+//      FORALL-DEPTH-2:                 tensor.parallel_insert_slice %[[MATMUL]] into %[[ITER_ARG_1]][0, 0, %[[IV1]], %[[IV0]], 0, 0] [1, 1, 4, 8, 4, 8] [1, 1, 1, 1, 1, 1]
+//      FORALL-DEPTH-2:            }
+//      FORALL-DEPTH-2:        }
+//      FORALL-DEPTH-2:        %[[SECOND_UNPACK:.*]] = tensor.unpack %[[SECOND_LOOP]]#2 inner_dims_pos = [0, 1] inner_tiles = [64, 64] into %[[SECOND_UNPACK_OUT]] :
+//      FORALL-DEPTH-2:        scf.forall.in_parallel
+//      FORALL-DEPTH-2:             tensor.parallel_insert_slice %[[SECOND_UNPACK]] into %[[ITER_ARG_FINAL]]
+//      FORALL-DEPTH-2:        }
+//      FORALL-DEPTH-2:   }
+//      FORALL-DEPTH-2:   return %[[FINAL]]
+
 // -----
 
 // FOR-LABEL: @fuse_consumer_into_scffor
@@ -116,56 +173,3 @@ func.func @fuse_consumer_into_scffor(%arg0: tensor<32x32xf32>, %arg1: tensor<32x
 //      FOR:       scf.yield %[[SECOND_LOOP]]#1
 //      FOR:   }
 //      FOR:   return %[[FINAL]]
-
-// -----
-
-// FORALL-LABEL: @no_fusable_consumer
-#map = affine_map<(d0, d1) -> (d0, d1)>
-func.func @no_fusable_consumer(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>, %arg2: tensor<64x64xf32>) -> tensor<4096xf32> {
-    %c4 = arith.constant 4 : index
-    %c64 = arith.constant 64 : index
-    %c0 = arith.constant 0 : index
-    
-    %output1 = tensor.empty() : tensor<4096xf32>
-    %0 = scf.forall (%arg3) in (2) shared_outs(%arg5 = %output1) -> (tensor<4096xf32>) {
-        %1 = scf.forall (%arg6, %arg7) in (2, 2) shared_outs(%arg8 = %arg2) -> (tensor<64x64xf32>) {
-            %extracted_slice = tensor.extract_slice %arg8[%arg6, %arg7] [32, 32] [1, 1] : tensor<64x64xf32> to tensor<32x32xf32>
-            %6 = linalg.matmul ins(%arg0, %arg1 : tensor<32x32xf32>, tensor<32x32xf32>) outs(%extracted_slice : tensor<32x32xf32>) -> tensor<32x32xf32>
-            scf.forall.in_parallel {
-                tensor.parallel_insert_slice %6 into %arg8[%arg6, %arg7] [32, 32] [1, 1] : tensor<32x32xf32> into tensor<64x64xf32>
-            }
-        }
-        %2 = scf.forall (%arg6, %arg7) in (2, 2) shared_outs(%arg8 = %1) -> (tensor<64x64xf32>) {
-            %extracted_slice = tensor.extract_slice %arg8[%arg6, %arg7] [32, 32] [1, 1] : tensor<64x64xf32> to tensor<32x32xf32>
-            %6 = linalg.matmul ins(%arg0, %arg1 : tensor<32x32xf32>, tensor<32x32xf32>) outs(%extracted_slice : tensor<32x32xf32>) -> tensor<32x32xf32>
-            scf.forall.in_parallel {
-                tensor.parallel_insert_slice %6 into %arg8[%arg6, %arg7] [32, 32] [1, 1] : tensor<32x32xf32> into tensor<64x64xf32>
-            }
-        }
-        %output = tensor.empty() : tensor<4096xf32>
-        %unpack = tensor.unpack %2 outer_dims_perm = [0] inner_dims_pos = [0] inner_tiles = [64] into %output : tensor<64x64xf32> -> tensor<4096xf32>
-        scf.forall.in_parallel {
-            tensor.parallel_insert_slice %unpack into %arg5[%arg3] [4096] [1] : tensor<4096xf32> into tensor<4096xf32>
-        }
-    }
-    return %0 : tensor<4096xf32>
-}
-//      FORALL:   %[[FINAL:.*]] = scf.forall
-// FORALL-SAME:                         shared_outs(%[[ITER_ARG_FINAL:.*]] = %{{.*}})
-//      FORALL:   {
-//      FORALL:       %{{.*}} = scf.forall
-//      FORALL:       {
-//      FORALL:       }
-//      FORALL:       %[[SECOND_LOOP:.*]] = scf.forall
-//      FORALL:       {
-//      FORALL:            %[[MATMUL:.*]] = linalg.matmul
-// FORALL-NEXT:            scf.forall.in_parallel {
-// FORALL-NEXT:                 tensor.parallel_insert_slice %[[MATMUL]] into 
-// FORALL-NEXT:            }
-//      FORALL:        }
-//      FORALL:        %[[UNPACK:.*]] = tensor.unpack %[[SECOND_LOOP]]
-//      FORALL:        scf.forall.in_parallel
-//      FORALL:             tensor.parallel_insert_slice %[[UNPACK]] into %[[ITER_ARG_FINAL]]
-//      FORALL:        }
-//      FORALL:   }
-//      FORALL:   return %[[FINAL]]

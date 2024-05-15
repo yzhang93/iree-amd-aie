@@ -96,6 +96,8 @@ def AMDAIEFuseConsumerIntoLoop :
   let summary = "Fuse the consumer operation into the innermost last scf loop.";
   let constructor = "mlir::iree_compiler::AMDAIE::createAMDAIEFuseConsumerIntoLoopPass()";
   let options = [
+    Option<"fuseDepth", "fuse-depth", "int64_t", /*default=*/"1",
+      "Set the depth until which we would keep fusing consumer chain">,
     Option<"useSCFFor", "use-scf-for", "bool", /*default=*/"false",
       "Set the innermost scf loop type to fuse consumer ops into">
   ];
