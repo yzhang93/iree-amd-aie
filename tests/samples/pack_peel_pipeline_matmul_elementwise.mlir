@@ -56,7 +56,7 @@ func.func @matmul_elementwise_bf16(%arg0: tensor<1024x512xbf16>, %arg1: tensor<5
 //       CHECK:    aie.shim_dma_allocation
 //       CHECK:    aie.shim_dma_allocation
 //       CHECK:    aie.shim_dma_allocation
-//       CHECK:    func.func @matmul_elementwise_bf16_dispatch_0_matmul_1024x1024x512_bf16(%arg0: memref<262144xi32>, %arg1: memref<262144xi32>, %arg2: memref<524288xi32>, %arg3: memref<512xi32>)
+//       CHECK:    func.func @matmul_elementwise_bf16_dispatch_0_matmul_1024x1024x512_bf16(%arg0: memref<262144xi32>, %arg1: memref<262144xi32>, %arg2: memref<512xi32>, %arg3: memref<524288xi32>)
 //       CHECK:      aiex.npu.dma_memcpy_nd
 //       CHECK:      aiex.npu.dma_memcpy_nd
 //       CHECK:      aiex.npu.dma_memcpy_nd
@@ -96,7 +96,7 @@ func.func @matmul_elementwise_transpose_b(%arg0: tensor<256x512xbf16>, %arg1: te
 //       CHECK:    aie.shim_dma_allocation
 //       CHECK:    aie.shim_dma_allocation
 //       CHECK:    aie.shim_dma_allocation
-//       CHECK:    func.func @matmul_elementwise_transpose_b_dispatch_0_matmul_transpose_b_256x1024x512_bf16(%arg0: memref<65536xi32>, %arg1: memref<262144xi32>, %arg2: memref<131072xi32>, %arg3: memref<512xi32>)
+//       CHECK:    func.func @matmul_elementwise_transpose_b_dispatch_0_matmul_transpose_b_256x1024x512_bf16(%arg0: memref<65536xi32>, %arg1: memref<262144xi32>, %arg2: memref<512xi32>, %arg3: memref<131072xi32>)
 //       CHECK:      aiex.npu.dma_memcpy_nd
 //       CHECK:      aiex.npu.dma_memcpy_nd
 //       CHECK:      aiex.npu.dma_memcpy_nd
