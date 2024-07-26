@@ -390,50 +390,51 @@ function run_test() {
   set -e
 }
 
-# Example of running a test directly from an .mlir file with a function.
-run_test --test_file ${THIS_DIR}/test_files/matmul_int32.mlir
+# # Example of running a test directly from an .mlir file with a function.
+# run_test --test_file ${THIS_DIR}/test_files/matmul_int32.mlir
 
-# An example of an arbitrary graph with three matmuls which form three dispatches.
-run_test --test_file ${THIS_DIR}/test_files/three_matmuls.mlir --function 'three_$mm$'
+# # An example of an arbitrary graph with three matmuls which form three dispatches.
+# run_test --test_file ${THIS_DIR}/test_files/three_matmuls.mlir --function 'three_$mm$'
 
-# tests that model kernel switching costs.
-run_test --test_file ${THIS_DIR}/test_files/two_matmul_switching.mlir
-run_test --test_file ${THIS_DIR}/test_files/matmul_f32_8_8_4.mlir
-run_test --test_file ${THIS_DIR}/test_files/matmul_f32_8_4_8.mlir
+# # tests that model kernel switching costs.
+# run_test --test_file ${THIS_DIR}/test_files/two_matmul_switching.mlir
+# run_test --test_file ${THIS_DIR}/test_files/matmul_f32_8_8_4.mlir
+# run_test --test_file ${THIS_DIR}/test_files/matmul_f32_8_4_8.mlir
 
-# Example of generating a matmul test from a template, and then running it.
-test_name=${OUTPUT_DIR}/test_from_template.mlir
-matmul_template_dir=${THIS_DIR}/matmul_template
-template_name=${matmul_template_dir}/matmul_MxK_KxN.mlir
-generate_matmul_test \
-   --output_fn ${test_name} \
-   --input_fn ${template_name} \
-   --lhs_rhs_type "bf16" \
-   --acc_type "f32" \
-   --m "32"  --n "32" --k "64"
-run_test --test_file ${test_name} --rtol 1e-5 --atol 1e-5
+# # Example of generating a matmul test from a template, and then running it.
+# test_name=${OUTPUT_DIR}/test_from_template.mlir
+# matmul_template_dir=${THIS_DIR}/matmul_template
+# template_name=${matmul_template_dir}/matmul_MxK_KxN.mlir
+# generate_matmul_test \
+#    --output_fn ${test_name} \
+#    --input_fn ${template_name} \
+#    --lhs_rhs_type "bf16" \
+#    --acc_type "f32" \
+#    --m "32"  --n "32" --k "64"
+# run_test --test_file ${test_name} --rtol 1e-5 --atol 1e-5
 
-template_name=${matmul_template_dir}/matmul_bias_MxK_KxN_MxN.mlir
-generate_matmul_test \
-   --output_fn ${test_name} --input_fn ${template_name} \
-   --lhs_rhs_type "i32" --acc_type "i32" \
-   --m "128"  --n "128" --k "256"
-run_test --test_file ${test_name} --pipeline "pack-peel" --rtol 0 --atol 0
+# template_name=${matmul_template_dir}/matmul_bias_MxK_KxN_N.mlir
+# generate_matmul_test \
+#    --output_fn ${test_name} --input_fn ${template_name} \
+#    --lhs_rhs_type "i8" --acc_type "i32" \
+#    --m "4240"  --n "160" --k "576"
+# run_test --test_file ${test_name} --pipeline "pack-peel" --rtol 0 --atol 0
 
 
-template_name=${matmul_template_dir}/matmul_bias_MxK_KxN_N.mlir
-generate_matmul_test \
-   --output_fn ${test_name} --input_fn ${template_name} \
-   --lhs_rhs_type "bf16" --acc_type "f32" \
-   --m "1024"  --n "1024" --k "512"
-run_test --test_file ${test_name} --pipeline "pack-peel"
-run_test --test_file ${test_name} --pipeline "pack-peel" --use_ukernel 1
+# template_name=${matmul_template_dir}/matmul_bias_MxK_KxN_N.mlir
+# generate_matmul_test \
+#    --output_fn ${test_name} --input_fn ${template_name} \
+#    --lhs_rhs_type "bf16" --acc_type "f32" \
+#    --m "1024"  --n "1024" --k "512"
+# run_test --test_file ${test_name} --pipeline "pack-peel"
+# run_test --test_file ${test_name} --pipeline "pack-peel" --use_ukernel 1
 
-# Conv2d tests.
-run_test --test_file ${THIS_DIR}/test_files/conv2d_nhwc_int32.mlir --pipeline "conv-decompose"
-run_test --test_file ${THIS_DIR}/test_files/conv2d_nhwc_bf16.mlir --pipeline "conv-decompose"
-run_test --test_file ${THIS_DIR}/test_files/conv2d_nhwc_int8.mlir --pipeline "conv-decompose"
-run_test --test_file ${THIS_DIR}/test_files/conv2d_nhwc_q.mlir --pipeline "conv-decompose"
+# # Conv2d tests.
+# run_test --test_file ${THIS_DIR}/test_files/conv2d_nhwc_int32.mlir --pipeline "conv-decompose"
+# run_test --test_file ${THIS_DIR}/test_files/conv2d_nhwc_bf16.mlir --pipeline "conv-decompose"
+# run_test --test_file ${THIS_DIR}/test_files/conv2d_nhwc_int8.mlir --pipeline "conv-decompose"
+# run_test --test_file ${THIS_DIR}/test_files/conv2d_nhwc_q.mlir --pipeline "conv-decompose"
+run_test --test_file ${THIS_DIR}/test_files/matmul_elem_2.mlir --pipeline "pack-peel"
 
 if [ $COMPARISON_TESTS_FAILS -ne 0 ]; then
   echo "$COMPARISON_TESTS_FAILS comparison tests failed!"

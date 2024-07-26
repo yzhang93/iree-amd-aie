@@ -77,6 +77,8 @@ void AMDAIEVectorizationPass::runOnOperation() {
     // dominate this use'. TODO(newling) follow-up on this.
     if (isa<linalg::FillOp>(op)) return;
 
+    if (isElementwise(cast<linalg::LinalgOp>(op))) return;
+
     // AIE architecture has no vector instructions for 32/64-bit types.
     if (!hasOperandWithSmallElementType(op)) return;
 
