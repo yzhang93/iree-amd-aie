@@ -204,6 +204,48 @@ LogicalResult writeAccessToAcquireRelease(Operation *parentOp) {
   return success();
 }
 
+LogicalResult noneAccessToTemporaryBuffer(Operation *parentOp) {
+  IRRewriter rewriter(parentOp->getContext());
+
+  SmallVector<AMDAIE::CoreOp> coreOps;
+  parentOp->walk([&](AMDAIE::CoreOp coreOp) { coreOps.push_back(coreOp); });
+
+  for (AMDAIE::CoreOp coreOp : coreOps) {
+    // Map from logical objectFifos to the temporary buffer.
+    DenseMap<Value, memref::AllocOp> logicalObjectFifoToAlloc;
+
+    WalkResult res =
+      coreOp->walk([&](AMDAIE::LogicalObjectFifoAccessOp accessOp) {
+        if (accessOp.getAccessType() != AMDAIE::MemoryAccess::None)
+          return WalkResult::advance();
+
+        memref::AllocOp newAllocOp;
+        if (!logicalObjectFifoToAlloc.contains(accessOp.getInput())) {
+          rewriter.setInsertionPoint(accessOp);
+          auto memRefType = cast<MemRefType>(accessOp.getOutput().getType());
+          MemRefType allocType = MemRefType::get(
+              memRefType.getShape(), memRefType.getElementType(),
+              MemRefLayoutAttrInterface{}, memRefType.getMemorySpace());
+          newAllocOp = rewriter.create<memref::AllocOp>(
+              rewriter.getUnknownLoc(), allocType);
+          logicalObjectFifoToAlloc[accessOp.getInput()] = newAllocOp;
+
+          auto newDeallocOp = rewriter.create<memref::DeallocOp>(
+            rewriter.getUnknownLoc(), newAllocOp);
+          newDeallocOp->moveBefore(&newAllocOp->getBlock()->back());
+        } else {
+          newAllocOp = logicalObjectFifoToAlloc[accessOp.getInput()];
+        }
+
+        rewriter.replaceAllUsesWith(accessOp.getResult(),
+                                    newAllocOp.getResult());
+        return WalkResult::advance();
+      });
+    if (res.wasInterrupted()) return failure();
+  }
+  return success();
+}
+
 class AMDAIEAccessToAcquireReleasePass
     : public impl::AMDAIEAccessToAcquireReleaseBase<
           AMDAIEAccessToAcquireReleasePass> {
@@ -228,6 +270,11 @@ void AMDAIEAccessToAcquireReleasePass::runOnOperation() {
   if (failed(writeAccessToAcquireRelease(parentOp))) {
     parentOp->emitOpError() << "failed to convert write access operations to "
                                "acquire-release semaphore stubs";
+    return signalPassFailure();
+  }
+  if (failed(noneAccessToTemporaryBuffer(parentOp))) {
+    parentOp->emitOpError() << "failed to convert none access operations to "
+                               "temporary buffers";
     return signalPassFailure();
   }
   // Erase old access operations.
