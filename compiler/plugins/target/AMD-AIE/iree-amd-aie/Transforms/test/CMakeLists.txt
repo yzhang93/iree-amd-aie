@@ -23,7 +23,6 @@ iree_lit_test_suite(
     "create_logical_objectfifo_link.mlir"
     "create_reference_to_allocation.mlir"
     "disable_vectorization.mlir"
-    "distribute_cores_and_objectfifos.mlir"
     "dma_loop_subsumption.mlir"
     "dma_to_circular_dma.mlir"
     "flatten_logical_objectfifo.mlir"

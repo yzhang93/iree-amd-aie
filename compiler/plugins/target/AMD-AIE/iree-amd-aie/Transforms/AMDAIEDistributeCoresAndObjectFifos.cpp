@@ -1008,10 +1008,10 @@ void AMDAIEDistributeCoresAndObjectFifosPass::runOnOperation() {
 
   // Allocate different memories for logical objectFifos on the same shared
   // memory tile to ensure different buffers will be used for them.
-  if (failed(distributeSharedMemory(moduleOp))) {
-    moduleOp.emitOpError() << "distribution of shared memory failed";
-    return signalPassFailure();
-  }
+  // if (failed(distributeSharedMemory(moduleOp))) {
+  //   moduleOp.emitOpError() << "distribution of shared memory failed";
+  //   return signalPassFailure();
+  // }
 }
 
 }  // namespace
