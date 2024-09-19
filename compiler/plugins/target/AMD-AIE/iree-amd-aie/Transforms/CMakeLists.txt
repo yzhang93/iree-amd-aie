@@ -92,6 +92,7 @@ iree_cc_library(
     "AMDAIESplitLogicalObjFifosForConnectionReuse.cpp"
     "AMDAIETile.cpp"
     "AMDAIETileAndFuse.cpp"
+    "AMDAIETransferStridedAccessPattern.cpp"
     "AMDAIEUtils.cpp"
     "AMDAIEVectorization.cpp"
     "BridgeToAIRPass.cpp"

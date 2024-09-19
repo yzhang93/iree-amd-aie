@@ -499,6 +499,12 @@ def AMDAIETileAndFuse :
   ];
 }
 
+def AMDAIETransferStridedAccessPattern :
+  Pass<"iree-amdaie-transfer-strided-access-pattern"> {
+  let summary = "Pass to transfer the strided access pattern between L2 and L3 in control code.";
+  let constructor = "mlir::iree_compiler::AMDAIE::createAMDAIETransferStridedAccessPatternPass()";
+}
+
 def AMDAIEVectorization :
     InterfacePass<"iree-amdaie-vectorization", "mlir::FunctionOpInterface"> {
   let summary = "Convert operations to the vector dialect in an AIE-friendly way.";
