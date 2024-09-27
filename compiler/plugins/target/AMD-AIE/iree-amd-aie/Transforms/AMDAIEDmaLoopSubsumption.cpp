@@ -470,11 +470,29 @@ struct SubsumeLoopIntoDMA
     if (!isa<LoopLikeOpInterface>(parentOp))
       return rewriter.notifyMatchFailure(op, "Parent is not a loop-like op");
 
-    auto hasUsersInSameScope = [&](Value result) -> bool {
+    auto otherUsersInSameScope = [&](Value result) -> bool {
       for (Operation *userOp : result.getUsers()) {
         if (userOp != op.getOperation() && parentOp->isProperAncestor(userOp)) {
           return true;
         }
+      }
+      return false;
+    };
+
+    auto circularUsersInSameScope =
+        [&](Value result,
+            SmallVector<AMDAIE::DoublyStridedOpInterface> users) -> bool {
+      bool currentUser = false;
+      for (AMDAIE::DoublyStridedOpInterface userOp : llvm::reverse(users)) {
+        if (isa<AMDAIE::NpuCircularDmaCpyNdOp>(userOp) &&
+            userOp != op.getOperation()) {
+          return true;
+        }
+        if (userOp == op.getOperation()) {
+          currentUser = true;
+          continue;
+        }
+        if (currentUser) return true;
       }
       return false;
     };
@@ -490,7 +508,7 @@ struct SubsumeLoopIntoDMA
       // the rewrite is not valid in general as it would be changing the
       // temporal usage of the source DMA.
       Value dma = npuDmaOp.getConnection();
-      if (hasUsersInSameScope(dma)) {
+      if (otherUsersInSameScope(dma)) {
         return rewriter.notifyMatchFailure(
             op,
             "Has users of same DMA in scope, analysis to check validity of "
@@ -507,7 +525,18 @@ struct SubsumeLoopIntoDMA
       // the rewrite is not valid in general as it would be changing the
       // temporal usage of the source DMA.
       Value dma = npuCircularDmaOp.getConnection();
-      if (hasUsersInSameScope(dma)) {
+
+      // Walk the parentOp and get users of the connection op in order.
+      SmallVector<AMDAIE::DoublyStridedOpInterface> dmaUsers;
+      parentOp->walk([&](AMDAIE::DoublyStridedOpInterface op) {
+        auto connection = dyn_cast_if_present<AMDAIE::ConnectionOp>(
+            op->getOperand(0).getDefiningOp());
+        if (connection == npuCircularDmaOp.getConnectionOp()) {
+          dmaUsers.push_back(op);
+        }
+      });
+
+      if (circularUsersInSameScope(dma, dmaUsers)) {
         return rewriter.notifyMatchFailure(
             op,
             "Has users of same DMA in scope, analysis to check validity of "

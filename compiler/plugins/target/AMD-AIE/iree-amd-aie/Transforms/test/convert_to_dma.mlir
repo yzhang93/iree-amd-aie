@@ -3,16 +3,16 @@
 // CHECK-LABEL: @basic_unitdim_pack
 // CHECK: %[[ALLOC0:.*]] = memref.alloc() : memref<1x1x8x16xi32, 1>
 // CHECK: %[[FROMMEMREF0:.*]] = amdaie.logicalobjectfifo.from_memref %[[ALLOC0]], {} : memref<1x1x8x16xi32, 1> -> !amdaie.logicalobjectfifo<memref<1x1x8x16xi32, 1>>
-// CHECK: %[[ALLOC1:.*]] = memref.alloc() : memref<8x16xi32, 1>
-// CHECK: %[[FROMMEMREF1:.*]] = amdaie.logicalobjectfifo.from_memref %[[ALLOC1]], {} : memref<8x16xi32, 1> -> !amdaie.logicalobjectfifo<memref<8x16xi32, 1>>
+// CHECK: %[[ALLOC1:.*]] = memref.alloc() : memref<8x16xi32>
+// CHECK: %[[FROMMEMREF1:.*]] = amdaie.logicalobjectfifo.from_memref %[[ALLOC1]], {} : memref<8x16xi32> -> !amdaie.logicalobjectfifo<memref<8x16xi32>>
 // CHECK: %[[DMA0:.*]] = amdaie.dma_cpy_nd
 // CHECK-SAME: %[[FROMMEMREF0]][0, 0, 0, 0] [1, 1, 8, 16] [128, 128, 16, 1]
 // CHECK-SAME: %[[FROMMEMREF1]][0, 0, 0, 0] [1, 1, 8, 16] [128, 16, 16, 1]
 // CHECK-SAME: (!amdaie.logicalobjectfifo<memref<1x1x8x16xi32, 1>>, !amdaie.logicalobjectfifo<memref<8x16xi32, 1>>)
 func.func @basic_unitdim_pack() {
   %alloc = memref.alloc() : memref<1x1x8x16xi32, 1>
-  %alloc_0 = memref.alloc() : memref<8x16xi32, 1>
-  iree_linalg_ext.pack %alloc_0 inner_dims_pos = [0, 1] inner_tiles = [8, 16] into %alloc : (memref<8x16xi32, 1> memref<1x1x8x16xi32, 1>)
+  %alloc_0 = memref.alloc() : memref<8x16xi32>
+  iree_linalg_ext.pack %alloc_0 inner_dims_pos = [0, 1] inner_tiles = [8, 16] into %alloc : (memref<8x16xi32> memref<1x1x8x16xi32, 1>)
   return
 }
 
@@ -21,15 +21,15 @@ func.func @multidim_pack() {
 // CHECK-LABEL: @multidim_pack
 // CHECK: %[[ALLOC0:.*]] = memref.alloc() : memref<5x4x3x2xi32, 1>
 // CHECK: %[[FROMMEMREF0:.*]] = amdaie.logicalobjectfifo.from_memref %[[ALLOC0]], {} : memref<5x4x3x2xi32, 1> -> !amdaie.logicalobjectfifo<memref<5x4x3x2xi32, 1>>
-// CHECK: %[[ALLOC1:.*]] = memref.alloc() : memref<15x8xi32, 1>
-// CHECK: %[[FROMMEMREF1:.*]] = amdaie.logicalobjectfifo.from_memref %[[ALLOC1]], {} : memref<15x8xi32, 1> -> !amdaie.logicalobjectfifo<memref<15x8xi32, 1>>
+// CHECK: %[[ALLOC1:.*]] = memref.alloc() : memref<15x8xi32>
+// CHECK: %[[FROMMEMREF1:.*]] = amdaie.logicalobjectfifo.from_memref %[[ALLOC1]], {} : memref<15x8xi32> -> !amdaie.logicalobjectfifo<memref<15x8xi32, 1>>
 // CHECK: %[[DMA0:.*]] = amdaie.dma_cpy_nd
 // CHECK-SAME: %[[FROMMEMREF0]][0, 0, 0, 0] [5, 4, 3, 2] [24, 6, 2, 1]
 // CHECK-SAME: %[[FROMMEMREF1]][0, 0, 0, 0] [5, 4, 3, 2] [24, 2, 8, 1]
-// CHECK-SAME: (!amdaie.logicalobjectfifo<memref<5x4x3x2xi32, 1>>, !amdaie.logicalobjectfifo<memref<15x8xi32, 1>>)
+// CHECK-SAME: (!amdaie.logicalobjectfifo<memref<5x4x3x2xi32, 1>>, !amdaie.logicalobjectfifo<memref<15x8xi32>>)
   %alloc = memref.alloc() :  memref<5x4x3x2xi32, 1>
-  %alloc_0 = memref.alloc() : memref<15x8xi32, 1>
-  iree_linalg_ext.pack %alloc_0 inner_dims_pos = [0, 1] inner_tiles = [3, 2] into %alloc : (memref<15x8xi32, 1> memref<5x4x3x2xi32, 1>)
+  %alloc_0 = memref.alloc() : memref<15x8xi32>
+  iree_linalg_ext.pack %alloc_0 inner_dims_pos = [0, 1] inner_tiles = [3, 2] into %alloc : (memref<15x8xi32> memref<5x4x3x2xi32, 1>)
   return
 }
 

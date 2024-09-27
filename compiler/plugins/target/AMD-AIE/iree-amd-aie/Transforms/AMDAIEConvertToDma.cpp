@@ -68,7 +68,7 @@ LogicalResult packDmaInputs(IREE::LinalgExt::PackOp packOp,
         getAsIndexOpFoldResult(ctx, stride.value() * innerTiles[i]);
     // The tiled dim inherits the offset from the corresponding outer dim and
     // the outer dim offset is set to zero.
-    innerOffsets.push_back(offsets[innerDimsPos[i]]);
+    innerOffsets.push_back(getAsIndexOpFoldResult(ctx, 0));
     offsets[innerDimsPos[i]] = getAsIndexOpFoldResult(ctx, 0);
   }
   // Apply permutations to the outer dims if provided.
@@ -251,6 +251,51 @@ LogicalResult processInputs(Operation *op, SmallVector<OpFoldResult> &offsets,
   return success();
 }
 
+LogicalResult packL3ToL2(IREE::LinalgExt::PackOp packOp,
+                         SmallVector<OpFoldResult> &sizes,
+                         SmallVector<OpFoldResult> &strides) {
+  MLIRContext *ctx = packOp.getContext();
+
+  llvm::ArrayRef<int64_t> permutation = packOp.getOuterDimsPerm();
+  llvm::ArrayRef<int64_t> innerTiles = packOp.getStaticInnerTiles();
+
+  Operation *sourceOp = packOp.getInput().getDefiningOp();
+  auto memType = dyn_cast<MemRefType>(sourceOp->getResult(0).getType());
+  if (!memType) {
+    return packOp->emitOpError("the source op doesn't have MemRefType");
+  }
+
+  ArrayRef<int64_t> srcShape = memType.getShape();
+  int64_t initial = 1;
+  SmallVector<OpFoldResult> srcStrides{getAsIndexOpFoldResult(ctx, initial)};
+  for (int i = srcShape.size() - 1; i > 0; i--) {
+    initial *= srcShape[i];
+    srcStrides.insert(srcStrides.begin(), getAsIndexOpFoldResult(ctx, initial));
+  }
+
+  int innerSize = innerTiles.size();
+  int numOuterDims = sizes.size() - innerSize;
+  SmallVector<OpFoldResult> outerStrides{strides.begin(),
+                                         strides.begin() + numOuterDims};
+
+  ArrayRef<int64_t> innerDimsPos = packOp.getInnerDimsPos();
+  SmallVector<OpFoldResult> innerStrides(innerSize);
+  for (int i = 0; i < innerSize; i++) {
+    innerStrides[i] = srcStrides[innerDimsPos[i]];
+    std::optional<int64_t> stride = getConstantIntValue(innerStrides[i]);
+    int64_t newStride = stride.value() * innerTiles[i];
+    outerStrides[innerDimsPos[i]] = getAsIndexOpFoldResult(ctx, newStride);
+  }
+  // Apply permutations to the outer dims if provided.
+  if (!permutation.empty()) {
+    applyPermutationToVector(outerStrides, permutation);
+  }
+  // Merge the dims.
+  strides = outerStrides;
+  strides.insert(strides.end(), innerStrides.begin(), innerStrides.end());
+  return success();
+}
+
 /// Rewrite the pack/unpack op 'op' as a DMA operation. The function arguments
 /// 'input', 'output', and 'innerTiles' are the input, output, and inner tile
 /// of 'op'. If 'op' is not a pack/unpack op, or if it determined to not
@@ -283,16 +328,29 @@ LogicalResult rewriteAsDma(IRRewriter &rewriter, Operation *op, Value input,
     return failure();
   }
 
-  if (!succeeded(processInputs(op, srcOffsets, srcShape, srcBaseStrides))) {
-    return failure();
-  }
-
   // Prepare destination DMA inputs.
   SmallVector<OpFoldResult> dstOffsets;
   SmallVector<OpFoldResult> dstBaseStrides;
   SmallVector<OpFoldResult> dstShape;
   if (!succeeded(setDmaInputs(dstOp, dstOffsets, dstShape, dstBaseStrides))) {
     return failure();
+  }
+
+  uint32_t srcMemspace =
+      cast<MemRefType>(input.getType()).getMemorySpaceAsInt();
+  uint32_t dstMemspace =
+      cast<MemRefType>(output.getType()).getMemorySpaceAsInt();
+
+  if (auto packOp = dyn_cast<IREE::LinalgExt::PackOp>(op) && srcMemspace == 0 &&
+                    dstMemspace == 1) {
+    if (!succeeded(packL3ToL2(dyn_cast<IREE::LinalgExt::PackOp>(op), dstShape,
+                              dstBaseStrides))) {
+      return failure();
+    }
+  } else {
+    if (!succeeded(processInputs(op, srcOffsets, srcShape, srcBaseStrides))) {
+      return failure();
+    }
   }
 
   // Create logical objectFifos from source and destination memrefs.
