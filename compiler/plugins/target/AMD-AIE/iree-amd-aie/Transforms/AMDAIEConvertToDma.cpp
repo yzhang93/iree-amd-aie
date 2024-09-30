@@ -252,47 +252,102 @@ LogicalResult processInputs(Operation *op, SmallVector<OpFoldResult> &offsets,
 }
 
 LogicalResult packL3ToL2(IREE::LinalgExt::PackOp packOp,
+                         SmallVector<OpFoldResult> &offsets,
                          SmallVector<OpFoldResult> &sizes,
                          SmallVector<OpFoldResult> &strides) {
+//  MLIRContext *ctx = packOp.getContext();
+//
+//  llvm::ArrayRef<int64_t> permutation = packOp.getOuterDimsPerm();
+//  llvm::ArrayRef<int64_t> innerTiles = packOp.getStaticInnerTiles();
+//
+//  Operation *sourceOp = packOp.getInput().getDefiningOp();
+//  auto memType = dyn_cast<MemRefType>(sourceOp->getResult(0).getType());
+//  if (!memType) {
+//    return packOp->emitOpError("the source op doesn't have MemRefType");
+//  }
+//
+//  ArrayRef<int64_t> srcShape = memType.getShape();
+//  int64_t initial = 1;
+//  SmallVector<OpFoldResult> srcStrides{getAsIndexOpFoldResult(ctx, initial)};
+//  for (int i = srcShape.size() - 1; i > 0; i--) {
+//    initial *= srcShape[i];
+//    srcStrides.insert(srcStrides.begin(), getAsIndexOpFoldResult(ctx, initial));
+//  }
+//
+//  int innerSize = innerTiles.size();
+//  int numOuterDims = sizes.size() - innerSize;
+//  SmallVector<OpFoldResult> outerStrides{strides.begin(),
+//                                         strides.begin() + numOuterDims};
+//
+//  ArrayRef<int64_t> innerDimsPos = packOp.getInnerDimsPos();
+//  SmallVector<OpFoldResult> innerStrides(innerSize);
+//  for (int i = 0; i < innerSize; i++) {
+//    innerStrides[i] = srcStrides[innerDimsPos[i]];
+//    std::optional<int64_t> stride = getConstantIntValue(innerStrides[i]);
+//    int64_t newStride = stride.value() * innerTiles[i];
+//    outerStrides[innerDimsPos[i]] = getAsIndexOpFoldResult(ctx, newStride);
+//  }
+//  // Apply permutations to the outer dims if provided.
+//  if (!permutation.empty()) {
+//    applyPermutationToVector(outerStrides, permutation);
+//  }
+//  // Merge the dims.
+//  strides = outerStrides;
+//  strides.insert(strides.end(), innerStrides.begin(), innerStrides.end());
   MLIRContext *ctx = packOp.getContext();
 
   llvm::ArrayRef<int64_t> permutation = packOp.getOuterDimsPerm();
   llvm::ArrayRef<int64_t> innerTiles = packOp.getStaticInnerTiles();
 
-  Operation *sourceOp = packOp.getInput().getDefiningOp();
-  auto memType = dyn_cast<MemRefType>(sourceOp->getResult(0).getType());
-  if (!memType) {
-    return packOp->emitOpError("the source op doesn't have MemRefType");
-  }
+  SmallVector<OpFoldResult> innerSizes;
+  SmallVector<OpFoldResult> innerStrides;
+  SmallVector<OpFoldResult> innerOffsets;
+  auto innerDimsPos = packOp.getInnerDimsPos();
 
-  ArrayRef<int64_t> srcShape = memType.getShape();
-  int64_t initial = 1;
-  SmallVector<OpFoldResult> srcStrides{getAsIndexOpFoldResult(ctx, initial)};
-  for (int i = srcShape.size() - 1; i > 0; i--) {
-    initial *= srcShape[i];
-    srcStrides.insert(srcStrides.begin(), getAsIndexOpFoldResult(ctx, initial));
-  }
+  int numOuterDims = sizes.size() - innerTiles.size();
+  SmallVector<OpFoldResult> outerOffsets = SmallVector<OpFoldResult>(
+      offsets.begin(), offsets.begin() + numOuterDims);
+  SmallVector<OpFoldResult> outerStrides = SmallVector<OpFoldResult>(
+      strides.begin(), strides.begin() + numOuterDims);
+  SmallVector<OpFoldResult> outerSizes =
+      SmallVector<OpFoldResult>(sizes.begin(), sizes.begin() + numOuterDims);
 
-  int innerSize = innerTiles.size();
-  int numOuterDims = sizes.size() - innerSize;
-  SmallVector<OpFoldResult> outerStrides{strides.begin(),
-                                         strides.begin() + numOuterDims};
-
-  ArrayRef<int64_t> innerDimsPos = packOp.getInnerDimsPos();
-  SmallVector<OpFoldResult> innerStrides(innerSize);
-  for (int i = 0; i < innerSize; i++) {
-    innerStrides[i] = srcStrides[innerDimsPos[i]];
-    std::optional<int64_t> stride = getConstantIntValue(innerStrides[i]);
-    int64_t newStride = stride.value() * innerTiles[i];
-    outerStrides[innerDimsPos[i]] = getAsIndexOpFoldResult(ctx, newStride);
-  }
-  // Apply permutations to the outer dims if provided.
+  // Apply inverse permutation to the outer dims if permutation provided (if
+  // permutation not provided, it is identity, and therefore so is the inverse).
   if (!permutation.empty()) {
-    applyPermutationToVector(outerStrides, permutation);
+    SmallVector<int64_t> inversePermutation =
+        invertPermutationVector(permutation);
+    applyPermutationToVector(outerStrides, inversePermutation);
+    applyPermutationToVector(outerSizes, inversePermutation);
+    applyPermutationToVector(outerOffsets, inversePermutation);
   }
-  // Merge the dims.
+  // Do the unpacking on the Outer dims.
+  llvm::SmallDenseMap<int64_t, int64_t> outerDimsIndexMap;
+  // Intialize the indexing of each outer dim.
+  for (int i = 0; i < numOuterDims; i++) {
+    outerDimsIndexMap[i] = i;
+  }
+  for (int i = 0; i < innerTiles.size(); i++) {
+    // Insert inner dims adjacent to there corresponding outer dims.
+    outerSizes.insert(
+        outerSizes.begin() + outerDimsIndexMap[innerDimsPos[i]] + 1,
+        getAsIndexOpFoldResult(ctx, innerTiles[i]));
+    outerStrides.insert(
+        outerStrides.begin() + outerDimsIndexMap[innerDimsPos[i]] + 1,
+        strides[numOuterDims + i]);
+    outerOffsets.insert(
+        outerOffsets.begin() + outerDimsIndexMap[innerDimsPos[i]] + 1,
+        offsets[numOuterDims + i]);
+    // Update the map as all the dimensions inner to the innerDimsPos[i] are now
+    // shifted by 1.
+    for (int j = innerDimsPos[i] + 1; j < numOuterDims; j++) {
+      outerDimsIndexMap[j]++;
+    }
+  }
+  // Make the outer dims as the final returned dims
+  offsets = outerOffsets;
   strides = outerStrides;
-  strides.insert(strides.end(), innerStrides.begin(), innerStrides.end());
+  sizes = outerSizes;
   return success();
 }
 
@@ -343,7 +398,7 @@ LogicalResult rewriteAsDma(IRRewriter &rewriter, Operation *op, Value input,
 
   if (auto packOp = dyn_cast<IREE::LinalgExt::PackOp>(op) && srcMemspace == 0 &&
                     dstMemspace == 1) {
-    if (!succeeded(packL3ToL2(dyn_cast<IREE::LinalgExt::PackOp>(op), dstShape,
+    if (!succeeded(packL3ToL2(dyn_cast<IREE::LinalgExt::PackOp>(op), dstOffsets, dstShape,
                               dstBaseStrides))) {
       return failure();
     }
