@@ -261,8 +261,8 @@ std::unique_ptr<Pass> createAMDAIERemoveMemorySpacePass();
 /// Create a pass to sink all dependencies into `amdaie.core` operations.
 std::unique_ptr<Pass> createAMDAIESinkIntoCorePass();
 
-/// Create a pass to split logicalobjectfifos for connection reuse.
-std::unique_ptr<Pass> createAMDAIESplitLogicalObjFifosForConnectionReusePass();
+/// Create a pass to split L2 buffers.
+std::unique_ptr<Pass> createAMDAIESplitL2BuffersPass();
 
 /// Create a pass to bufferize temporary alloc ops.
 std::unique_ptr<Pass> createAMDAIETemporaryAllocBufferizationPass();

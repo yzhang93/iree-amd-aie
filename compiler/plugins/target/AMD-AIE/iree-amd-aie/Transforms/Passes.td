@@ -606,10 +606,10 @@ def AMDAIESinkIntoCore :
   let constructor = "mlir::iree_compiler::AMDAIE::createAMDAIESinkIntoCorePass()";
 }
 
-def AMDAIESplitLogicalObjFifosForConnectionReuse :
-  Pass<"iree-amdaie-split-logical-objectfifos-for-connection-reuse", "ModuleOp"> {
-  let summary = "Pass to split L2 buffers to share inputs of Matmul and Elementwise operations.";
-  let constructor = "mlir::iree_compiler::AMDAIE::createAMDAIESplitLogicalObjFifosForConnectionReusePass()";
+def AMDAIESplitL2Buffers :
+  Pass<"iree-amdaie-split-l2-buffers", ""> {
+  let summary = "Pass to split L2 buffers.";
+  let constructor = "mlir::iree_compiler::AMDAIE::createAMDAIESplitL2BuffersPass()";
 }
 
 def AMDAIETemporaryAllocBufferization :
