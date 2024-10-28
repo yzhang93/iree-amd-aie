@@ -654,7 +654,10 @@ LogicalResult assignAieTilesAndDistributeLogicalObjectFifos(ModuleOp moduleOp) {
     // For now, use first tile in sorted list.
     // TODO(jornt): This will need to become more complex in the future to
     // account for potential hardware limitations and constraints.
-    SmallVector<Value> tileResults = {cast<Value>(tiles[0].getResult())};
+    ArrayRef<int64_t> memrefShape = logicalObjectFifo.getMemrefType().getShape();
+    int64_t memTileId = memrefShape[0] == 1 ? 1 : 0;
+
+    SmallVector<Value> tileResults = {cast<Value>(tiles[memTileId].getResult())};
     rewriter.setInsertionPoint(logicalObjectFifo);
     rewriter.replaceOpWithNewOp<AMDAIE::LogicalObjectFifoFromMemrefOp>(
         logicalObjectFifo,
