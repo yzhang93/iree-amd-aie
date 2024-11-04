@@ -108,9 +108,9 @@ FailureOr<SmallVector<Attribute>> getGPUMappingAttributes(
   // map the first dimension to AIE array columns (or something like that).
   auto getAttribute = [&](uint32_t i) -> Attribute {
     if (i == 0)
-      return getMappingAttributeForDimension(1);
-    else if (i == 1)
       return getMappingAttributeForDimension(0);
+    else if (i == 1)
+      return getMappingAttributeForDimension(1);
     else
       return getMappingAttributeForDimension(i);
   };
