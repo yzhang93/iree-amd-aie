@@ -415,6 +415,9 @@ static LogicalResult setRootConfigForPackPeelPipeline(
                                          packPeelTiling.getN0()};
   SmallVector<int64_t> tileSizeLevel1 = {0, 0, packPeelTiling.getK0()};
   SmallVector<int64_t> tileSizeLevel2 = {1, 1, 0, 0, 0, 0};
+  SmallVector<SmallVector<int64_t>> tileSizes = {tileSizeLevel0, tileSizeLevel1,
+                                                 tileSizeLevel2};
+  SmallVector<SmallVector<int64_t>> interchanges = {{1, 0}, {0, 1}, {1, 0}};
 
   if (isa<linalg::BatchMatmulOp>(linalgOp)) {
     tileSizeLevel0.insert(tileSizeLevel0.begin(), 1);
@@ -422,10 +425,23 @@ static LogicalResult setRootConfigForPackPeelPipeline(
     tileSizeLevel2.insert(tileSizeLevel2.begin(), 0);
   }
 
-  TileSizesListType tileSizes = {tileSizeLevel0, tileSizeLevel1,
-                                 tileSizeLevel2};
+  SmallVector<IREE::Codegen::LoweringConfigTilingLevelAttr> newTilingLevelsList;
+  for (auto &&[tileSize, interchange] : llvm::zip(tileSizes, interchanges)) {
+    auto newLevel = IREE::Codegen::LoweringConfigTilingLevelAttr::get(
+        context, tileSize, interchange, SmallVector<bool>{});
+    newTilingLevelsList.push_back(newLevel);
+  }
+
+  auto newTilingLevels = IREE::Codegen::LoweringConfigTilingLevelsAttr::get(
+      context, newTilingLevelsList);
+  auto loweringConfig =
+      IREE::Codegen::LoweringConfigAttr::get(context, newTilingLevels, {});
+
+  //  TileSizesListType tileSizes = {tileSizeLevel0, tileSizeLevel1,
+  //                                 tileSizeLevel2};'
+
   if (failed(setOpConfigAndEntryPointFnTranslation(
-          entryPointFn, linalgOp, tileSizes,
+          entryPointFn, linalgOp, loweringConfig,
           IREE::Codegen::DispatchLoweringPassPipeline::Custom))) {
     return failure();
   }

@@ -304,9 +304,11 @@ void AMDAIETileAndFusePass::runOnOperation() {
   // If `consumerOp` has its own lowering config, we prefer using it.
   // Otherwise, fallback to find a lowering_config from other operations.
   SmallVector<int64_t> tileSizesVal;
+  SmallVector<int64_t> interchangeVal;
   if (auto loweringConfig =
           getLoweringConfig<IREE::Codegen::LoweringConfigAttr>(consumerOp)) {
     tileSizesVal = loweringConfig.getTileSizeVals(tilingLevel);
+    interchangeVal = loweringConfig.getTileInterchangeVals(tilingLevel);
   } else {
     FailureOr<IREE::Codegen::LoweringConfigAttr> maybeLoweringConfig =
         getFirstLoweringConfig<IREE::Codegen::LoweringConfigAttr>(
@@ -317,6 +319,8 @@ void AMDAIETileAndFusePass::runOnOperation() {
       return;
     }
     tileSizesVal = maybeLoweringConfig.value().getTileSizeVals(tilingLevel);
+    interchangeVal =
+        maybeLoweringConfig.value().getTileInterchangeVals(tilingLevel);
   }
 
   if (llvm::all_of(tileSizesVal, [&](int64_t size) { return size == 0; })) {
@@ -328,6 +332,7 @@ void AMDAIETileAndFusePass::runOnOperation() {
       getAsIndexOpFoldResult(context, tileSizesVal);
 
   auto options = scf::SCFTilingOptions().setTileSizes(tileSizes);
+  options.setInterchange(interchangeVal);
 
   if (!useSCFFor) {
     options.setLoopType(scf::SCFTilingOptions::LoopType::ForallOp);
