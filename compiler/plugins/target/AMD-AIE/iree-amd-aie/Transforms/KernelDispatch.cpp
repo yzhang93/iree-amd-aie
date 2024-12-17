@@ -355,17 +355,18 @@ static LogicalResult setRootConfigForPackPeelPipeline(
   // For matmul, transpose B matrix from [K N n k] to [K N k n]
   // For matmul_transpose_b, we don't have to transpose the B matrix,
   // since it is already [N K n k]
-  SmallVector<int64_t> transposePackIndices = {1};
+  SmallVector<int64_t> transposePackIndices = {0, 1};
   // There is no corresponding unpack for the specified pack operation
   // 0 is used when unpack is empty
-  SmallVector<bool> unpackEmpty = {false};
+  SmallVector<bool> unpackEmpty = {false, false};
   SmallVector<int64_t> innerPermB = setInnerPermB(isMatmulTransposeB);
-  SmallVector<SmallVector<int64_t>> innerPerm = {innerPermB};
+  // For matmul_transpose_a, transpose A matrix from [K M m k] to [K M k m]
+  SmallVector<SmallVector<int64_t>> innerPerm = {{1, 0}, {1, 0}};
   SmallVector<int64_t> outerPermVec = {0, 1};
   if (isa<linalg::BatchMatmulOp>(linalgOp)) {
     outerPermVec.push_back(2);
   }
-  SmallVector<SmallVector<int64_t>> outerPerm = {outerPermVec};
+  SmallVector<SmallVector<int64_t>> outerPerm = {{0, 1}, {0, 1}};
   auto packingConfigLevel0Attr = getPackingConfigPackingLevelAttr(
       context, packedSizesL0, transposePackIndices, unpackEmpty, innerPerm,
       outerPerm);
@@ -388,10 +389,14 @@ static LogicalResult setRootConfigForPackPeelPipeline(
   // For matmul, transpose B matrix from [K N k n n0 k0] to [K N n k k0 n0]
   // For matmul_transpose_b, transpose B matrix from [N K n k n0 k0] to
   // [N K k n n0 k0]
+  // For matmul_transpose_a, transpose A matrix from [K M k m k0 m0] to
+  // [K M m k k0 m0]
+  // For matmul_transpose_a, transpose B matrix from [K N k n n0 k0] to
+  // [K N n k k0 n0]
   transposePackIndices = {0, 1, 2};
   // Only the third pack operation has a corresponding unpack operation
   unpackEmpty = {false, false, true};
-  innerPerm = {{0, 1}, innerPermB, {0, 1}};
+  innerPerm = {{1, 0}, innerPermB, {0, 1}};
   if (isa<linalg::BatchMatmulOp>(linalgOp)) {
     outerPerm = {{0, 1, 2, 4, 3}, {0, 1, 2, 4, 3}, {0, 1, 2, 4, 3}};
   } else {
@@ -709,10 +714,10 @@ static LogicalResult setTransposeLikeOpRootConfig(
     AMDAIEDevice targetDevice, uint32_t numRows, uint32_t numCols) {
   if (passPipeline == TilePassPipeline::PackPeelPipeline)
     return setRootConfigForPackPeelPipeline(entryPointFn, linalgOp,
-                                            useLowerToAIEPipeline, true,
+                                            useLowerToAIEPipeline, false,
                                             targetDevice, numRows, numCols);
   else if (passPipeline == TilePassPipeline::PadPackPipeline)
-    return setRootConfigForPadPackPipeline(entryPointFn, linalgOp, true,
+    return setRootConfigForPadPackPipeline(entryPointFn, linalgOp, false,
                                            targetDevice, numRows, numCols);
   return linalgOp.emitError(
       "Unhandled pass pipeline in setTransposeLikeOpRootConfig.");
@@ -752,7 +757,7 @@ static LogicalResult setRootConfig(mlir::FunctionOpInterface entryPointFn,
   assert(!getLoweringConfig<IREE::Codegen::LoweringConfigAttr>(contractionOp) &&
          "expected lowering_config is not set");
   auto linalgOp = cast<linalg::LinalgOp>(contractionOp.getOperation());
-  if (isa<linalg::MatmulTransposeBOp>(linalgOp)) {
+  if (isa<linalg::MatmulTransposeAOp>(linalgOp)) {
     if (succeeded(setTransposeLikeOpRootConfig(
             entryPointFn, linalgOp, passPipeline, useLowerToAIEPipeline,
             targetDevice, numRows, numCols))) {

@@ -216,8 +216,12 @@ class AMDAIEInsertLoopsForVectorizationPass
       auto isMatmulTransposeB = getDim(A, 0) == getDim(C, 0) &&  // M
                                 getDim(B, 0) == getDim(C, 1) &&  // N
                                 getDim(A, 1) == getDim(B, 1);    // K
+      
+      auto isMatmulTransposeA = getDim(A, 1) == getDim(C, 0) &&  // M
+                                getDim(B, 1) == getDim(C, 1) &&  // N
+                                getDim(A, 0) == getDim(B, 0);    // K
 
-      if (!isMatmul && !isMatmulTransposeB) return failure();
+      if (!isMatmul && !isMatmulTransposeB && !isMatmulTransposeA) return failure();
     }
 
     if (enableCollapsingUnitDims) collapseUnitDims(rewriter, genericOp);

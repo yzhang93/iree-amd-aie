@@ -425,10 +425,10 @@ static bool isGemmBTransposedContractionOp(vector::ContractionOp op) {
   // Check whether they conform to a "transposed B" gemm
   auto ctx = op.getContext();
   auto mmAidxMap =
-      AffineMap::getPermutationMap(ArrayRef<unsigned>{1, 0, 2}, ctx)
+      AffineMap::getPermutationMap(ArrayRef<unsigned>{1, 2, 0}, ctx)
           .dropResults(0);
   auto mmBidxMap =
-      AffineMap::getPermutationMap(ArrayRef<unsigned>{0, 1, 2}, ctx)
+      AffineMap::getPermutationMap(ArrayRef<unsigned>{0, 2, 1}, ctx)
           .dropResults(0);
   auto mmCidxMap =
       AffineMap::getPermutationMap(ArrayRef<unsigned>{2, 0, 1}, ctx)
@@ -825,8 +825,8 @@ struct ExtractTransposeFromContractionOp
     Location loc = contractOp.getLoc();
     auto ctx = rewriter.getContext();
 
-    Value rhsVal = contractOp.getRhs();
-    VectorType rhsVecTy = contractOp.getRhsType();
+    Value rhsVal = contractOp.getLhs();
+    VectorType rhsVecTy = contractOp.getLhsType();
     Type rhsElemTy = rhsVecTy.getElementType();
 
     bool doExtF = false, doExtSI = false, doExtUI = false;
@@ -855,6 +855,7 @@ struct ExtractTransposeFromContractionOp
                  .create<vector::TransposeOp>(loc, transpRhsVecTy, rhsVal,
                                               rhsPermutation)
                  .getResult();
+    llvm::outs() << "HERE 1 " << rhsVal << "\n";
 
     if (doExtF)
       rhsVal =
@@ -880,19 +881,23 @@ struct ExtractTransposeFromContractionOp
 
     SmallVector<AffineMap, 4> oldIdxMaps(contractOp.getIndexingMapsArray());
 
-    nDim = oldIdxMaps[1].getNumDims();
+    nDim = oldIdxMaps[0].getNumDims();
     SmallVector<int64_t> innerDimPerm;
-    for (int64_t i = 0; i < nDim - 2; i++) innerDimPerm.push_back(i);
+    for (int64_t i = 0; i < nDim - 3; i++) innerDimPerm.push_back(i);
     innerDimPerm.push_back(nDim - 1);
     innerDimPerm.push_back(nDim - 2);
+    innerDimPerm.push_back(nDim - 3);
     auto transpPermMap = AffineMap::getPermutationMap(innerDimPerm, ctx);
+    llvm::outs() << "HERE 4 " << transpPermMap << "\n";
 
     auto newIdxMaps = rewriter.getAffineMapArrayAttr(
-        {oldIdxMaps[0], oldIdxMaps[1].compose(transpPermMap), oldIdxMaps[2]});
+        {oldIdxMaps[0].compose(transpPermMap), oldIdxMaps[1], oldIdxMaps[2]});
+    
+    llvm::outs() << "HERE 2 " << newIdxMaps << "\n";
 
     rewriter.replaceOpWithNewOp<vector::ContractionOp>(
-        contractOp, contractOp.getResult().getType(), contractOp.getLhs(),
-        rhsVal, contractOp.getAcc(), newIdxMaps, contractOp.getIteratorTypes());
+        contractOp, contractOp.getResult().getType(), rhsVal,
+        contractOp.getRhs(), contractOp.getAcc(), newIdxMaps, contractOp.getIteratorTypes());
 
     return success();
   }
