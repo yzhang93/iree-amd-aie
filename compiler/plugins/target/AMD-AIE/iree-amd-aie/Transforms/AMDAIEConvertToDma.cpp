@@ -161,7 +161,8 @@ LogicalResult setDmaInputs(Operation *&operandOp,
                            SmallVector<OpFoldResult> &strides) {
   MLIRContext *ctx = operandOp->getContext();
   if (isa<memref::AllocOp>(operandOp) ||
-      isa<IREE::HAL::InterfaceBindingSubspanOp>(operandOp)) {
+      isa<IREE::HAL::InterfaceBindingSubspanOp>(operandOp) ||
+      isa<memref::CollapseShapeOp>(operandOp)) {
     MemRefType memRefType = cast<MemRefType>(operandOp->getResult(0).getType());
     auto [stridesI64, baseOffset] = getStridesAndOffset(memRefType);
     if (baseOffset != 0) {
