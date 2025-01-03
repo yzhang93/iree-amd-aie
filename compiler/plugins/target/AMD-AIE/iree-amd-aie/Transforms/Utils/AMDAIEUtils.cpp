@@ -317,7 +317,8 @@ bool isMatmulInDefChain(Value operand) {
 /// Utility to identify if `linalgOp` is an elementwise operation with a
 /// matmul-like op upstream in its computation tree.
 bool isMatmulProducerOfElementwise(linalg::LinalgOp linalgOp) {
-  if (!linalg::isElementwise(linalgOp) || isa<linalg::FillOp>(linalgOp)) {
+  if (!linalg::isElementwise(linalgOp) ||
+      isa<linalg::FillOp, linalg::CopyOp, linalg::TransposeOp>(linalgOp)) {
     return false;
   }
   // Check if any of the defining op is a matmul-like op.

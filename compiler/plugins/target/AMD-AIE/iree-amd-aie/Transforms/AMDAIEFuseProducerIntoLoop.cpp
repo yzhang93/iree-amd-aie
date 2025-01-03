@@ -38,8 +38,8 @@ namespace {
 /// Case 2 only matches where `block arg` is for a loop operation.
 static FailureOr<tensor::ExtractSliceOp> getTensorExtractSliceDefiningOp(
     Value operand) {
-  // Roll back through all the pack or copy ops immediately preceding `operand`.
-  while (isa_and_present<tensor::PackOp, linalg::CopyOp>(
+  // roll back through all the packs immediately preceding `operand`.
+  while (isa_and_present<tensor::PackOp, linalg::CopyOp, linalg::TransposeOp>(
       operand.getDefiningOp())) {
     operand = operand.getDefiningOp()->getOperand(0);
   }
@@ -49,7 +49,7 @@ static FailureOr<tensor::ExtractSliceOp> getTensorExtractSliceDefiningOp(
   if (!sliceOp) return failure();
 
   // Case 1 outlined above.
-  if (isa_and_present<tensor::PackOp, linalg::CopyOp>(
+  if (isa_and_present<tensor::PackOp, linalg::CopyOp, linalg::TransposeOp>(
           sliceOp.getSource().getDefiningOp())) {
     return sliceOp;
   }
