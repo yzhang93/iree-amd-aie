@@ -128,6 +128,28 @@ void addPackPeelBasedPassPipeline(OpPassManager &funcPassManager,
                                   const std::string &pathToUkernels,
                                   bool enableVectorizationPasses,
                                   TilePassPipeline useTilePipeline) {
+  // First level packing
+  {
+    AMDAIEPackAndTransposeOptions packOptions;
+    packOptions.packLevel = 0;
+    funcPassManager.addPass(createAMDAIEPackAndTransposePass(packOptions));
+  }
+  funcPassManager.addPass(createDecomposePackUnPackOpsPass());
+  funcPassManager.addPass(createPropagateReshapesByExpansionPass());
+  funcPassManager.addPass(createCanonicalizerPass());
+  funcPassManager.addPass(createCSEPass());
+
+  // Promote the input and result to DDR
+  {
+    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
+    bufferizeOptions.memorySpace = 0;
+    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgInputOutput;
+    funcPassManager.addPass(
+        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
+  }
+  funcPassManager.addPass(createCanonicalizerPass());
+  funcPassManager.addPass(createCSEPass());
+
   // First level tiling using scf.forall
   {
     AMDAIETileAndFuseOptions tileFuseOptions;
@@ -139,36 +161,57 @@ void addPackPeelBasedPassPipeline(OpPassManager &funcPassManager,
   funcPassManager.addPass(createCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
 
-  // First level packing
+  // Fuse fill op into the first forall loop
+  funcPassManager.addPass(createAMDAIEFuseFillIntoForallPass());
+
+  // Pad the linalg operation
   {
-    AMDAIEPackAndTransposeOptions packOptions;
-    packOptions.packLevel = 0;
-    funcPassManager.addPass(createAMDAIEPackAndTransposePass(packOptions));
+    AMDAIEPadOptions padOptions;
+    padOptions.paddingLevel = 0;
+    funcPassManager.addPass(createAMDAIEPadPass(padOptions));
   }
 
-  // Propagate pack ops for the elementwise op
-  funcPassManager.addPass(createAMDAIEPropagateDataLayoutPass());
+  // Promote the input and result to shared memory
+  {
+    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
+    bufferizeOptions.memorySpace = 1;
+    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgInputOutput;
+    funcPassManager.addPass(
+        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
+  }
   funcPassManager.addPass(createCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
 
-  // Promote the matmul output to shared memory
-  {
-    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
-    bufferizeOptions.memorySpace = 1;
-    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgOutput;
-    funcPassManager.addPass(
-        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
-  }
+  //  // First level packing
+  //  {
+  //    AMDAIEPackAndTransposeOptions packOptions;
+  //    packOptions.packLevel = 0;
+  //    funcPassManager.addPass(createAMDAIEPackAndTransposePass(packOptions));
+  //  }
+  //
+  //  // Propagate pack ops for the elementwise op
+  //  funcPassManager.addPass(createAMDAIEPropagateDataLayoutPass());
+  //  funcPassManager.addPass(createCanonicalizerPass());
+  //  funcPassManager.addPass(createCSEPass());
+  //
+  //  // Promote the matmul output to shared memory
+  //  {
+  //    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
+  //    bufferizeOptions.memorySpace = 1;
+  //    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgOutput;
+  //    funcPassManager.addPass(
+  //        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
+  //  }
 
   // Promote the elementwise input to shared memory
-  {
-    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
-    bufferizeOptions.memorySpace = 1;
-    bufferizeOptions.bufferizeElementwise = true;
-    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgInput;
-    funcPassManager.addPass(
-        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
-  }
+  //  {
+  //    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
+  //    bufferizeOptions.memorySpace = 1;
+  //    bufferizeOptions.bufferizeElementwise = true;
+  //    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgInput;
+  //    funcPassManager.addPass(
+  //        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
+  //  }
 
   // Second level packing
   {
@@ -206,14 +249,14 @@ void addPackPeelBasedPassPipeline(OpPassManager &funcPassManager,
 
   // Promote the operands of pack at depth 2 from the linalg ops to shared
   // memory.
-  {
-    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
-    bufferizeOptions.memorySpace = 1;
-    bufferizeOptions.bufferizeOperand = BufferizeOperand::PackInput;
-    bufferizeOptions.packDepth = 2;
-    funcPassManager.addPass(
-        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
-  }
+  //  {
+  //    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
+  //    bufferizeOptions.memorySpace = 1;
+  //    bufferizeOptions.bufferizeOperand = BufferizeOperand::PackInput;
+  //    bufferizeOptions.packDepth = 2;
+  //    funcPassManager.addPass(
+  //        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
+  //  }
 
   // Second level tiling using scf.forall
   {
@@ -576,6 +619,8 @@ void addAMDAIEObjectFifoLoweringPasses(
     dmaOptions.unpackTransposeOnSource = true;
     passManager.addPass(createAMDAIEConvertToDmaPass(dmaOptions));
   }
+  passManager.addPass(createCanonicalizerPass());
+  passManager.addPass(createCSEPass());
 
   passManager.addPass(createAMDAIENormalizeLoopBoundsPass());
   passManager.addPass(createAMDAIEInsertCoresPass());

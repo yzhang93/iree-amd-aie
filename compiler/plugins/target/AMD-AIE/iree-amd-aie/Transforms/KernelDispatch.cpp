@@ -372,11 +372,14 @@ static LogicalResult setRootConfigForPackPeelPipeline(
   SmallVector<int64_t> innerPermA = setInnerPermA(isMatmulTransposeA(linalgOp));
   SmallVector<int64_t> innerPermB = setInnerPermB(isMatmulTransposeB(linalgOp));
   SmallVector<SmallVector<int64_t>> innerPerm = {innerPermA, innerPermB};
-  SmallVector<int64_t> outerPermVec = {0, 1};
+  //  SmallVector<int64_t> outerPermVec = {0, 1};
+  SmallVector<SmallVector<int64_t>> outerPerm;
   if (isa<linalg::BatchMatmulOp>(linalgOp)) {
-    outerPermVec.push_back(2);
+    outerPerm = {{0, 1, 2}, {0, 2, 1}};
+  } else {
+    outerPerm = {{0, 1}, {1, 0}};
   }
-  SmallVector<SmallVector<int64_t>> outerPerm = {outerPermVec, outerPermVec};
+  // SmallVector<SmallVector<int64_t>> outerPerm = {outerPermVec, outerPermVec};
   auto packingConfigLevel0Attr = getPackingConfigPackingLevelAttr(
       context, packedSizesL0, transposePackIndices, unpackEmpty, innerPerm,
       outerPerm);
@@ -422,8 +425,7 @@ static LogicalResult setRootConfigForPackPeelPipeline(
   // ------------------------------------------------------
   // -------------- Set lowering config -------------------
   // ------------------------------------------------------
-  SmallVector<int64_t> tileSizeLevel0 = {packPeelTiling.getM0(),
-                                         packPeelTiling.getN0()};
+  SmallVector<int64_t> tileSizeLevel0 = {numRows, 0, numCols, 0};
   SmallVector<int64_t> tileSizeLevel1 = {0, 0, packPeelTiling.getK0()};
   SmallVector<int64_t> tileSizeLevel2 = {1, 1, 0, 0, 0, 0};
 
