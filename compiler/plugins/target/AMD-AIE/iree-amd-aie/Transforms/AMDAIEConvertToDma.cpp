@@ -161,7 +161,8 @@ LogicalResult setDmaInputs(Operation *&operandOp,
                            SmallVector<OpFoldResult> &strides) {
   MLIRContext *ctx = operandOp->getContext();
   if (isa<memref::AllocOp>(operandOp) ||
-      isa<IREE::HAL::InterfaceBindingSubspanOp>(operandOp)) {
+      isa<IREE::HAL::InterfaceBindingSubspanOp>(operandOp) ||
+      isa<memref::CollapseShapeOp>(operandOp)) {
     MemRefType memRefType = cast<MemRefType>(operandOp->getResult(0).getType());
     auto [stridesI64, baseOffset] = getStridesAndOffset(memRefType);
     if (baseOffset != 0) {
@@ -344,7 +345,8 @@ LogicalResult rewriteAsDma(PackOrUnpackOp op, IRRewriter &rewriter,
 ///
 /// Note: we could convert all copies to packs, but it would be potentially
 /// confusing to have packs ops moving data away from cores.
-LogicalResult copyToPack(IRRewriter &rewriter, linalg::CopyOp copyOp) {
+LogicalResult copyToPack(IRRewriter &rewriter, linalg::CopyOp copyOp,
+                         linalg::TransposeOp transposeOp) {
   if (copyOp.getNumOperands() != 2 || copyOp.getNumResults() != 0) {
     copyOp.emitOpError()
         << "has " << copyOp.getNumOperands() << " operands and "
@@ -365,14 +367,21 @@ LogicalResult copyToPack(IRRewriter &rewriter, linalg::CopyOp copyOp) {
   uint32_t dstMemspace = cast<MemRefType>(dst.getType()).getMemorySpaceAsInt();
   const bool towardsCore = srcMemspace <= dstMemspace;
 
+  ArrayRef<int64_t> permutation = transposeOp.getPermutation();
+
   rewriter.setInsertionPoint(copyOp);
   if (towardsCore) {
-    rewriter.replaceOpWithNewOp<IREE::LinalgExt::PackOp>(
-        copyOp, src, dst, innerDimsPos, innerTiles);
+    auto transposedSrc = transposeOp.getInput();
+    rewriter.create<IREE::LinalgExt::PackOp>(
+        transposeOp->getLoc(), transposedSrc, dst, innerDimsPos, innerTiles,
+        std::nullopt, permutation);
   } else {
-    rewriter.replaceOpWithNewOp<IREE::LinalgExt::UnPackOp>(
-        copyOp, src, dst, innerDimsPos, innerTiles);
+    auto transposedDst = transposeOp.getInit();
+    rewriter.create<IREE::LinalgExt::UnPackOp>(transposeOp->getLoc(), src,
+                                               transposedDst, innerDimsPos,
+                                               innerTiles, permutation);
   }
+  rewriter.eraseOp(copyOp);
 
   return success();
 }
@@ -398,18 +407,35 @@ class AMDAIEConvertToDmaPass
 void AMDAIEConvertToDmaPass::runOnOperation() {
   MLIRContext *context = &getContext();
   IRRewriter rewriter(context);
+  Operation *parentOp = getOperation();
 
   // Convert all linalg.copy to iree_linalg_ext.pack/unpack ops. We then
   // bootstrap the work done for lowering the pack/unpack op to dmas as the next
   // step. This is easy to implement, but not the most direct lowering, so
   // we might want to revisit this.
   WalkResult convertCopiesWalkResult =
-      getOperation()->walk([&](linalg::CopyOp copyOp) {
-        if (failed(copyToPack(rewriter, copyOp)))
+      parentOp->walk([&](linalg::CopyOp copyOp) {
+        auto input = copyOp.getInputs()[0];
+        auto output = copyOp.getOutputs()[0];
+        linalg::TransposeOp transposeOp;
+        parentOp->walk([&](linalg::TransposeOp op) {
+          if (op.getInput() == output || op.getInit() == input) {
+            transposeOp = op;
+          }
+          return WalkResult::advance();
+        });
+
+        if (failed(copyToPack(rewriter, copyOp, transposeOp)))
           return WalkResult::interrupt();
         return WalkResult::advance();
       });
   if (convertCopiesWalkResult.wasInterrupted()) return signalPassFailure();
+
+  parentOp->walk([&](linalg::TransposeOp op) {
+    op->dropAllUses();
+    rewriter.eraseOp(op);
+    return WalkResult::advance();
+  });
 
   WalkResult walkResult =
       getOperation()->walk([&](IREE::LinalgExt::PackOp packOp) {

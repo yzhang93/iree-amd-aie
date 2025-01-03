@@ -125,6 +125,9 @@ static AMDAIEMemSpaceAttr getMemorySpaceAttr(RewriterBase &rewriter,
                                              int64_t memorySpace) {
   AMDAIEMemSpace memSpace;
   switch (memorySpace) {
+    case 0:
+      memSpace = AMDAIEMemSpace::Global;
+      break;
     case 1:
       memSpace = AMDAIEMemSpace::Shared;
       break;
