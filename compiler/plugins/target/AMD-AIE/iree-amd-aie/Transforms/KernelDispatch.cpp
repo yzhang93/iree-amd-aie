@@ -474,7 +474,7 @@ static LogicalResult setRootConfigForPackPeelPipeline(
   // -------------- Set lowering config -------------------
   // ------------------------------------------------------
   SmallVector<int64_t> tileSizeLevel0 = {numRows, 0, numCols, 0};
-  SmallVector<int64_t> tileSizeLevel1 = {0, 0, packPeelTiling.getK0()};
+  SmallVector<int64_t> tileSizeLevel1 = {0, 0, 1};
   SmallVector<int64_t> tileSizeLevel2 = {1, 1, 0, 0, 0, 0};
 
   if (isa<linalg::BatchMatmulOp>(linalgOp)) {

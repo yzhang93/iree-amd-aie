@@ -175,7 +175,7 @@ void addPackPeelBasedPassPipeline(OpPassManager &funcPassManager,
   {
     AMDAIEBufferizeToAllocationOptions bufferizeOptions;
     bufferizeOptions.memorySpace = 1;
-    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgInputOutput;
+    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgOutput;
     funcPassManager.addPass(
         createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
   }
@@ -194,7 +194,7 @@ void addPackPeelBasedPassPipeline(OpPassManager &funcPassManager,
   //  funcPassManager.addPass(createCanonicalizerPass());
   //  funcPassManager.addPass(createCSEPass());
   //
-  //  // Promote the matmul output to shared memory
+  // Promote the matmul output to shared memory
   //  {
   //    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
   //    bufferizeOptions.memorySpace = 1;
@@ -240,7 +240,7 @@ void addPackPeelBasedPassPipeline(OpPassManager &funcPassManager,
   // Fuse both levels of pack ops into for loop
   {
     AMDAIEFusePackIntoLoopOptions fusePackOptions;
-    fusePackOptions.fusePackDepth = 2;
+    fusePackOptions.fusePackDepth = 3;
     fusePackOptions.useSCFFor = true;
     funcPassManager.addPass(createAMDAIEFusePackIntoLoopPass(fusePackOptions));
   }
@@ -249,14 +249,14 @@ void addPackPeelBasedPassPipeline(OpPassManager &funcPassManager,
 
   // Promote the operands of pack at depth 2 from the linalg ops to shared
   // memory.
-  //  {
-  //    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
-  //    bufferizeOptions.memorySpace = 1;
-  //    bufferizeOptions.bufferizeOperand = BufferizeOperand::PackInput;
-  //    bufferizeOptions.packDepth = 2;
-  //    funcPassManager.addPass(
-  //        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
-  //  }
+  {
+    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
+    bufferizeOptions.memorySpace = 1;
+    bufferizeOptions.bufferizeOperand = BufferizeOperand::PackInput;
+    bufferizeOptions.packDepth = 2;
+    funcPassManager.addPass(
+        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
+  }
 
   // Second level tiling using scf.forall
   {

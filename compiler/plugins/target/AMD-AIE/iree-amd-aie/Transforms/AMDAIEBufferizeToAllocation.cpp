@@ -79,6 +79,12 @@ static FailureOr<SmallVector<Value>> getPackOperands(linalg::LinalgOp linalgOp,
       if (dyn_cast<tensor::PackOp>(currentOp)) {
         currentLevel++;
         if (currentLevel == depthLevel) break;
+      } else if (dyn_cast<linalg::CopyOp>(currentOp)) {
+        currentLevel++;
+        if (currentLevel == depthLevel) break;
+      } else if (dyn_cast<linalg::TransposeOp>(currentOp)) {
+        currentLevel++;
+        if (currentLevel == depthLevel) break;
       }
       currentOp = currentOp->getOperand(0).getDefiningOp();
     }
