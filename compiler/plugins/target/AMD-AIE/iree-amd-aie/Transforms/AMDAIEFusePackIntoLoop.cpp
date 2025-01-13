@@ -37,7 +37,8 @@ namespace {
 static FailureOr<tensor::ExtractSliceOp> getTensorExtractSliceDefiningOp(
     Value operand) {
   // roll back through all the packs immediately preceding `operand`.
-  while (isa_and_present<tensor::PackOp>(operand.getDefiningOp())) {
+  while (isa_and_present<tensor::PackOp, linalg::CopyOp>(
+      operand.getDefiningOp())) {
     operand = operand.getDefiningOp()->getOperand(0);
   }
 
@@ -46,7 +47,8 @@ static FailureOr<tensor::ExtractSliceOp> getTensorExtractSliceDefiningOp(
   if (!sliceOp) return failure();
 
   // Case 1 outlined above.
-  if (isa_and_present<tensor::PackOp>(sliceOp.getSource().getDefiningOp())) {
+  if (isa_and_present<tensor::PackOp, linalg::CopyOp>(
+          sliceOp.getSource().getDefiningOp())) {
     return sliceOp;
   }
 

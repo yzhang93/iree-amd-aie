@@ -545,7 +545,7 @@ static LogicalResult setRootConfigForPackPeelPipeline(
   // 0 is used when unpack is empty
   SmallVector<bool> unpackEmpty = {false, false};
   SmallVector<int64_t> innerPermA = setInnerPermA(isMatmulTransposeA(linalgOp));
-  SmallVector<int64_t> innerPermB = setInnerPermB(isMatmulTransposeB(linalgOp));
+  SmallVector<int64_t> innerPermB = setInnerPermB((isMatmulTransposeB(linalgOp) || isa<linalg::Mmt4DOp>(linalgOp)));
   SmallVector<SmallVector<int64_t>> innerPerm = {innerPermA, innerPermB};
   bool isBatchMatmul = isa<linalg::BatchMatmulOp>(linalgOp);
   SmallVector<int64_t> outerPermA =
@@ -566,9 +566,9 @@ static LogicalResult setRootConfigForPackPeelPipeline(
     }
   }
 
-  auto packingConfigLevel0Attr = getPackingConfigPackingLevelAttr(
-      context, packedSizesL0, transposePackIndices, unpackEmpty, innerPerm,
-      outerPerm);
+  //  auto packingConfigLevel0Attr = getPackingConfigPackingLevelAttr(
+  //      context, packedSizesL0, transposePackIndices, unpackEmpty, innerPerm,
+  //      outerPerm);
 
   // Pack level => 2.
   // packed size for [M, N, K, m, n, k]
@@ -602,7 +602,7 @@ static LogicalResult setRootConfigForPackPeelPipeline(
       outerPerm);
 
   SmallVector<PackingConfigPackingLevelAttr> packingConfigLevelsVal = {
-      packingConfigLevel0Attr, packingConfigLevel1Attr};
+      packingConfigLevel1Attr};
   auto packingConfigLevels =
       PackingConfigPackingLevelsAttr::get(context, packingConfigLevelsVal);
   auto config = PackingConfigAttr::get(context, packingConfigLevels);
@@ -611,8 +611,12 @@ static LogicalResult setRootConfigForPackPeelPipeline(
   // ------------------------------------------------------
   // -------------- Set lowering config -------------------
   // ------------------------------------------------------
-  SmallVector<int64_t> tileSizeLevel0 = {packPeelTiling.M0, packPeelTiling.N0};
-  SmallVector<int64_t> tileSizeLevel1 = {0, 0, packPeelTiling.K0};
+  //  SmallVector<int64_t> tileSizeLevel0 = {packPeelTiling.getM0(),
+  //                                         packPeelTiling.getN0()};
+  //  SmallVector<int64_t> tileSizeLevel1 = {0, 0, packPeelTiling.getK0()};
+  //  SmallVector<int64_t> tileSizeLevel2 = {1, 1, 0, 0, 0, 0};
+  SmallVector<int64_t> tileSizeLevel0 = {numRows, numCols};
+  SmallVector<int64_t> tileSizeLevel1 = {0, 0, 1};
   SmallVector<int64_t> tileSizeLevel2 = {1, 1, 0, 0, 0, 0};
 
   if (isa<linalg::BatchMatmulOp>(linalgOp)) {
@@ -874,16 +878,17 @@ static LogicalResult setRootConfig(mlir::FunctionOpInterface entryPointFn,
   assert(!getLoweringConfig<IREE::Codegen::LoweringConfigAttr>(contractionOp) &&
          "expected lowering_config is not set");
   auto linalgOp = cast<linalg::LinalgOp>(contractionOp.getOperation());
-  unsigned numLoops = linalgOp.getNumLoops();
-  {
-    SmallVector<unsigned> dims;
-    linalgOp.getReductionDims(dims);
-    if (dims.size() != 1 || dims[0] != numLoops - 1) {
-      return linalgOp.emitOpError(
-                 "is expected to have exactly one reduction dim, ")
-             << "and that it is the innermost dim (" << numLoops - 1 << ").";
-    }
-  }
+  //  unsigned numLoops = linalgOp.getNumLoops();
+  //  {
+  //    SmallVector<unsigned> dims;
+  //    linalgOp.getReductionDims(dims);
+  //    if (dims.size() != 1 || dims[0] != numLoops - 1) {
+  //      return linalgOp.emitOpError(
+  //                 "is expected to have exactly one reduction dim, ")
+  //             << "and that it is the innermost dim (" << numLoops - 1 <<
+  //             ").";
+  //    }
+  //  }
 
   // TODO (nmeshram) : This needs to be moved in a separate more generalized
   // logic. Also, need a flag to experiment between pad based and pack based
