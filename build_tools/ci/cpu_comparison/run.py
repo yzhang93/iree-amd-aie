@@ -827,6 +827,121 @@ class MatmulTruncf(BaseMatmul):
         return True
 
 
+class Mmt4d(BaseMatmul):
+    """
+    A test of the form mmt4d(A,B) where A:MxKxM0xK0, B:N0xK0xNxK
+    """
+
+    def __init__(
+        self,
+        M,
+        N,
+        K,
+        input_type,
+        acc_type,
+        name_suffix="",
+        use_ukernel=False,
+        run_on_target=["npu1_4col"],
+        additional_labels=None,
+        aie_compilation_flags=None,
+        tile_pipeline="pack-peel",
+        lower_to_aie_pipeline="objectFifo",
+        n_repeats=1,
+        use_chess=False,
+    ):
+        super().__init__(
+            run_on_target=run_on_target,
+            aie_compilation_flags=aie_compilation_flags,
+            M=M,
+            N=N,
+            K=K,
+            input_type=input_type,
+            acc_type=acc_type,
+            tile_pipeline=tile_pipeline,
+            use_ukernel=use_ukernel,
+            n_repeats=n_repeats,
+            lower_to_aie_pipeline=lower_to_aie_pipeline,
+            use_chess=use_chess,
+        )
+        self.labels.append("Mmt4d")
+
+        self.name = f"mmt4d_{M}_{N}_{K}_{input_type}_{acc_type}"
+        if name_suffix:
+            self.name += f"_{name_suffix}"
+        if use_ukernel:
+            self.name += "_ukernel"
+        if additional_labels:
+            self.labels += additional_labels
+
+    def _execute(self, config):
+        matmul_template_dir = config.file_dir / "matmul_template"
+        template_name = matmul_template_dir / "mmt4d_MxKxM0xK0_NxKxN0xK0.mlir"
+        self.generate(config, template_name)
+        self.vs_cpu(config)
+
+        return True
+
+
+class Mmt4dBenchmark(BaseMatmul):
+    """
+    A test of the form mmt4d(A,B) where A:MxKxM0xK0, B:N0xK0xNxK
+    """
+
+    benchmark_compilation_flags = [
+        "--iree-amdaie-enable-infinite-loop-around-core-block=true"
+    ]
+
+    def __init__(
+        self,
+        M,
+        N,
+        K,
+        input_type,
+        acc_type,
+        name_suffix="",
+        use_ukernel=False,
+        tile_pipeline="pack-peel",
+        run_on_target=["npu1_4col"],
+        additional_labels=None,
+        aie_compilation_flags=None,
+        n_repeats=1,
+        n_kernel_runs=1,
+    ):
+        aie_compilation_flags = (
+            [] if aie_compilation_flags is None else aie_compilation_flags
+        )
+        aie_compilation_flags += MatmulBenchmark.benchmark_compilation_flags
+        super().__init__(
+            run_on_target=run_on_target,
+            aie_compilation_flags=aie_compilation_flags,
+            M=M,
+            N=N,
+            K=K,
+            input_type=input_type,
+            acc_type=acc_type,
+            tile_pipeline=tile_pipeline,
+            use_ukernel=use_ukernel,
+            n_repeats=n_repeats,
+            n_kernel_runs=n_kernel_runs,
+            function_name="mmt4d",
+        )
+
+        self.name = f"mmt4d_benchmark_{M}_{N}_{K}_{input_type}_{acc_type}"
+        if name_suffix:
+            self.name += f"_{name_suffix}"
+        if use_ukernel:
+            self.name += "_ukernel"
+        self.labels.append("Mmt4dBenchmark")
+        if additional_labels:
+            self.labels += additional_labels
+
+    def _execute(self, config):
+        matmul_template_dir = config.file_dir / "matmul_template"
+        template_name = matmul_template_dir / "mmt4d_MxKxM0xK0_NxKxN0xK0.mlir"
+        self.generate(config, template_name)
+        return self.benchmark(config)
+
+
 def find_executable(install_dir: Path, executable_name):
     """
     Search for an executable in the given directory and its subdirectories
@@ -1810,182 +1925,205 @@ class Tests:
             )
         )
 
+        self.register(
+            Mmt4d(
+                4,
+                4,
+                8,
+                "bf16",
+                "f32",
+            )
+        )
+        self.register(
+            Mmt4d(
+                4,
+                4,
+                16,
+                "bf16",
+                "f32",
+            )
+        )
+        self.register(
+            Mmt4d(
+                4,
+                16,
+                4,
+                "bf16",
+                "f32",
+            )
+        )
+        self.register(
+            Mmt4d(
+                16,
+                128,
+                16,
+                "i32",
+                "i32",
+            )
+        )
+
+
+
+
         performance_tests = [
-            {
-                "M": 512,
-                "N": 512,
-                "K": 4096,
-                "use_ukernel": False,
-                "peano_opt_level": 2,
-                "outline": False,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 512,
-                "N": 512,
-                "K": 4096,
-                "use_ukernel": False,
-                "peano_opt_level": 2,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 512,
-                "N": 512,
-                "K": 4096,
-                "use_ukernel": False,
-                "peano_opt_level": 3,
-                "outline": False,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 512,
-                "N": 512,
-                "K": 4096,
-                "use_ukernel": False,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 512,
-                "N": 512,
-                "K": 4096,
-                "use_ukernel": True,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 512,
-                "N": 4096,
-                "K": 512,
-                "use_ukernel": False,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 512,
-                "N": 4096,
-                "K": 512,
-                "use_ukernel": True,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 512,
-                "N": 4096,
-                "K": 512,
-                "use_ukernel": False,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": True,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 4096,
-                "N": 512,
-                "K": 512,
-                "use_ukernel": False,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 4096,
-                "N": 512,
-                "K": 512,
-                "use_ukernel": True,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 4096,
-                "N": 512,
-                "K": 512,
-                "use_ukernel": False,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": True,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel",
-            },
-            # Test where the compute is omitted, this should help triangulate
-            # how much performance gain can be obtained with better matmul
-            # on core vs data movement.
-            {
-                "M": 4096,
-                "N": 512,
-                "K": 512,
-                "use_ukernel": False,
-                "peano_opt_level": 3,
-                "outline": True,
-                "outline_to_empty_function": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "skip_numerics": True,
-                "tile_pipeline": "pack-peel",
-            },
-            {
-                "M": 512,
-                "N": 4096,
-                "K": 512,
-                "use_ukernel": False,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel-4-level-tiling",
-            },
-            {
-                "M": 512,
-                "N": 4096,
-                "K": 512,
-                "use_ukernel": True,
-                "peano_opt_level": 3,
-                "outline": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "tile_pipeline": "pack-peel-4-level-tiling",
-            },
-            # Test where the compute is omitted, this should help triangulate
-            # how much performance gain can be obtained with better matmul
-            # on core vs data movement.
-            {
-                "M": 512,
-                "N": 4096,
-                "K": 512,
-                "use_ukernel": False,
-                "peano_opt_level": 3,
-                "outline": True,
-                "outline_to_empty_function": True,
-                "transpose_a": False,
-                "transpose_b": False,
-                "skip_numerics": True,
-                "tile_pipeline": "pack-peel-4-level-tiling",
-            },
+            # {
+            #     "M": 16,
+            #     "N": 16,
+            #     "K": 128,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            #     "mmt4d": True,
+            # },
+            # {
+            #     "M": 16,
+            #     "N": 128,
+            #     "K": 16,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            #     "mmt4d": True,
+            # },
+            # {
+            #     "M": 128,
+            #     "N": 16,
+            #     "K": 16,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            #     "mmt4d": True,
+            # },
+            # {
+            #     "M": 512,
+            #     "N": 512,
+            #     "K": 4096,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 2,
+            #     "outline": False,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            # },
+            # {
+            #     "M": 512,
+            #     "N": 512,
+            #     "K": 4096,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 2,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            # },
+            # {
+            #     "M": 512,
+            #     "N": 512,
+            #     "K": 4096,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": False,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            # },
+            # {
+            #     "M": 512,
+            #     "N": 512,
+            #     "K": 4096,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            # },
+            # {
+            #     "M": 512,
+            #     "N": 512,
+            #     "K": 4096,
+            #     "use_ukernel": True,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            # },
+            # {
+            #     "M": 512,
+            #     "N": 4096,
+            #     "K": 512,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            # },
+            # {
+            #     "M": 512,
+            #     "N": 4096,
+            #     "K": 512,
+            #     "use_ukernel": True,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            # },
+            # {
+            #     "M": 512,
+            #     "N": 4096,
+            #     "K": 512,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": True,
+            # },
+            # {
+            #     "M": 4096,
+            #     "N": 512,
+            #     "K": 512,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            # },
+            # {
+            #     "M": 4096,
+            #     "N": 512,
+            #     "K": 512,
+            #     "use_ukernel": True,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            # },
+            # {
+            #     "M": 4096,
+            #     "N": 512,
+            #     "K": 512,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "transpose_a": True,
+            #     "transpose_b": False,
+            # },
+            # # Test where the compute is omitted, this should help triangulate
+            # # how much performance gain can be obtained with better matmul
+            # # on core vs data movement.
+            # {
+            #     "M": 4096,
+            #     "N": 512,
+            #     "K": 512,
+            #     "use_ukernel": False,
+            #     "peano_opt_level": 3,
+            #     "outline": True,
+            #     "outline_to_empty_function": True,
+            #     "transpose_a": False,
+            #     "transpose_b": False,
+            #     "skip_numerics": True,
+            # },
         ]
 
         # Some bf16 Performance tests:
@@ -1998,7 +2136,7 @@ class Tests:
             outline = test["outline"]
             transpose_a = test["transpose_a"]
             transpose_b = test["transpose_b"]
-            tile_pipeline = test["tile_pipeline"]
+            mmt4d = test["mmt4d"]
 
             outlining_string = "--iree-amdaie-enable-function-outlining=" + str(
                 int(outline)
@@ -2026,8 +2164,11 @@ class Tests:
                     name_suffix += "_outline_empty"
                 else:
                     name_suffix += "_outline"
-
-            if (transpose_a, transpose_b) == (False, False):
+            
+            if (mmt4d):
+                NumericTestClass = Mmt4d
+                BenchmarkTestClass = Mmt4dBenchmark
+            elif (transpose_a, transpose_b) == (False, False):
                 NumericTestClass = Matmul
                 BenchmarkTestClass = MatmulBenchmark
             elif (transpose_a, transpose_b) == (True, False):
