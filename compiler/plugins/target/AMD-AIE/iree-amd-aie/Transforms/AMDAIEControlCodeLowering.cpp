@@ -36,8 +36,8 @@ struct HalfDmaCpyNdToNpuConverter final
       AMDAIE::LogicalObjectFifoFromMemrefOp logicalObjFifo,
       AMDAIE::BdIdOp bdIdOp, AMDAIE::ChannelOp channelOp, int64_t bufferLength,
       int64_t bufferOffset, int32_t enablePacket, int32_t packetId,
-      int32_t packetType, ArrayRef<OpFoldResult> sizes,
-      ArrayRef<OpFoldResult> strides) const {
+      int32_t packetType, SmallVector<OpFoldResult> sizes,
+      SmallVector<OpFoldResult> strides) const {
     uint8_t numIntraAddrDim = deviceModel.getDmaProp<uint8_t>(
         tileType, AMDAIE::AMDAIEDmaProp::NumAddrDim);
     uint8_t numAddrDim =
@@ -66,6 +66,12 @@ struct HalfDmaCpyNdToNpuConverter final
     int32_t bdId = getConstantIndexOrAssert(bdIdOp.getValue());
     int32_t outOfOrderId{0};
 
+    SmallVector<OpFoldResult> offsets(
+        strides.size(), getAsIndexOpFoldResult(rewriter.getContext(), 0));
+    SmallVector<OpFoldResult> newOffsets, newSizes, newStrides;
+    (void)foldUnitDims(rewriter.getContext(), offsets, sizes, strides,
+                       newOffsets, newSizes, newStrides);
+
     SmallVector<int32_t, 4> staticSizes;
     SmallVector<int32_t, 4> staticStrides;
     // Padding is unused for now.
@@ -75,14 +81,14 @@ struct HalfDmaCpyNdToNpuConverter final
     int32_t iterationSize{0};
     int32_t iterationStride{0};
     int32_t repeatCount{1};
-    for (auto iter : llvm::enumerate(llvm::zip(sizes, strides))) {
+    for (auto iter : llvm::enumerate(llvm::zip(newSizes, newStrides))) {
       int64_t size = getConstantIndexOrAssert(std::get<0>(iter.value()));
       int64_t stride = getConstantIndexOrAssert(std::get<1>(iter.value()));
 
       /// Map the outer dimension to the iteration dimension if intra dimensions
       /// are all used already or if the first stride == 0 as only the iteration
       /// dimension supports stride == 0.
-      if (iter.index() == 0 && (sizes.size() == numAddrDim || stride == 0)) {
+      if (iter.index() == 0 && (newSizes.size() == numAddrDim || stride == 0)) {
         if (stride == 0) {
           repeatCount = size;
         } else {
@@ -96,7 +102,7 @@ struct HalfDmaCpyNdToNpuConverter final
         staticStrides.push_back(
             std::max(stride * elemWidthInBits / minStrideBitWidth, (int64_t)1));
         // Innermost size needs to account for addressing granularity.
-        if (iter.index() == (sizes.size() - 1)) {
+        if (iter.index() == (newSizes.size() - 1)) {
           staticSizes.push_back(size * elemWidthInBits / minStrideBitWidth);
         } else {
           staticSizes.push_back(size);
@@ -105,6 +111,12 @@ struct HalfDmaCpyNdToNpuConverter final
     }
     // Make sure sizes/strides have the correct size based on the number from
     // intra addressing dimensions.
+    assert(staticSizes.size() <= numIntraAddrDim &&
+           "The number of dimensions in DMA sizes should not more than the "
+           "number of `intra` addressing dimensions");
+    assert(staticStrides.size() <= numIntraAddrDim &&
+           "The number of dimensions in DMA strides should not more than the "
+           "number of `intra` addressing dimensions");
     staticSizes.insert(staticSizes.begin(),
                        numIntraAddrDim - staticSizes.size(), 0);
     staticStrides.insert(staticStrides.begin(),

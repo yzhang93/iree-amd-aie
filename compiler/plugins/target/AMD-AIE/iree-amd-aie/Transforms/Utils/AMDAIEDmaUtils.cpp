@@ -557,10 +557,18 @@ static bool anyOutOfRange(ArrayRef<int64_t> values, ArrayRef<int64_t> maxValues,
   return false;
 }
 
-bool DmaDimConfig::isValidAccessPattern(ArrayRef<int64_t> sizes,
-                                        ArrayRef<int64_t> strides) const {
+bool DmaDimConfig::isValidAccessPattern(SmallVector<int64_t> sizes,
+                                        SmallVector<int64_t> strides) const {
   assert(sizes.size() == strides.size() &&
          "`sizes` and `strides` should have the same size");
+  // Do not check the size and stride if the size is 1 for certain dimension.
+  for (int i = 0; i < sizes.size(); i++) {
+    if (sizes[i] == 1) {
+      sizes.erase(sizes.begin() + i);
+      strides.erase(strides.begin() + i);
+      i--;
+    }
+  }
   SmallVector<int64_t> maxSizes = getMaxSizes(sizes.size());
   assert(maxSizes.size() >= sizes.size() &&
          "Max number of dimensions exceeded");
