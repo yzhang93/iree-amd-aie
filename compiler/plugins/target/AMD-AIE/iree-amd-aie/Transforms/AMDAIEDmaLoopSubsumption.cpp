@@ -277,14 +277,14 @@ struct SubsumeLoopIntoDMA
 
         // Check each dim of the new sizes/strides after insertion to make sure
         // they are not out of the range.
-        SmallVector<int64_t> newSourceSizesInt =
-            insertInFront(newSourceSizes, insertSourceSizes);
-        SmallVector<int64_t> newSourceStridesInt =
-            insertInFront(newSourceStrides, insertSourceStrides);
-        if (!sourceDmaDimConfig.isValidAccessPattern(newSourceSizesInt,
-                                                     newSourceStridesInt)) {
-          return failure();
-        }
+//        SmallVector<int64_t> newSourceSizesInt =
+//            insertInFront(newSourceSizes, insertSourceSizes);
+//        SmallVector<int64_t> newSourceStridesInt =
+//            insertInFront(newSourceStrides, insertSourceStrides);
+//        if (!sourceDmaDimConfig.isValidAccessPattern(newSourceSizesInt,
+//                                                     newSourceStridesInt)) {
+//          return failure();
+//        }
       }
       // Add loop iteration to the access pattern on the target side.
       if (!newTargetOffsets.empty()) {

@@ -233,7 +233,7 @@ struct DmaDimConfig {
           AMDAIE::AMDAIETileType::SHIMNOC, AMDAIE::AMDAIEDmaProp::NumAddrDim);
       tileType = AMDAIE::AMDAIETileType::SHIMNOC;
       nbInterDims = deviceModel.deviceConfig.dmaNbInterDims;
-      maxNbDims = nbIntraDims + nbInterDims;
+      maxNbDims = nbIntraDims + nbInterDims + 1;
     } else if (memSpace == 1) {
       nbIntraDims = deviceModel.getDmaProp<uint8_t>(
           AMDAIE::AMDAIETileType::MEMTILE, AMDAIE::AMDAIEDmaProp::NumAddrDim);
