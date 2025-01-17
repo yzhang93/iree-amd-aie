@@ -398,7 +398,7 @@ static LogicalResult setRootConfigForPackPeel4LevelTilingPipeline(
   if (failed(maybePackPeelTiling)) return failure();
   auto packPeelTiling = maybePackPeelTiling.value();
 
-  AMDAIEDeviceModel deviceModel = getDeviceModel(targetDevice);
+//  AMDAIEDeviceModel deviceModel = getDeviceModel(targetDevice);
 
   // ------------------------------------------------------
   // --------------- Set packing config -------------------
@@ -435,9 +435,9 @@ static LogicalResult setRootConfigForPackPeel4LevelTilingPipeline(
     outerPerm.push_back({1, 0});
   }
 
-  auto packingConfigLevel0Attr = getPackingConfigPackingLevelAttr(
-      context, packedSizesL0, transposePackIndices, unpackEmpty, innerPerm,
-      outerPerm);
+//  auto packingConfigLevel0Attr = getPackingConfigPackingLevelAttr(
+//      context, packedSizesL0, transposePackIndices, unpackEmpty, innerPerm,
+//      outerPerm);
 
   // Pack level => 2.
   // packed size for [M, N, K, m, n, k]
@@ -471,7 +471,7 @@ static LogicalResult setRootConfigForPackPeel4LevelTilingPipeline(
       outerPerm);
 
   SmallVector<PackingConfigPackingLevelAttr> packingConfigLevelsVal = {
-      packingConfigLevel0Attr, packingConfigLevel1Attr};
+      packingConfigLevel1Attr};
   auto packingConfigLevels =
       PackingConfigPackingLevelsAttr::get(context, packingConfigLevelsVal);
   auto config = PackingConfigAttr::get(context, packingConfigLevels);
@@ -482,18 +482,19 @@ static LogicalResult setRootConfigForPackPeel4LevelTilingPipeline(
   // ------------------------------------------------------
   // Check if we can scale L2 size of A and B with a factor of 2. TODO(jornt):
   // generalize to find largest scaling factor possible.
-  int64_t l2SizeA =
-      2 * packPeelTiling.M0 * packPeelTiling.K * packPeelTiling.nBitsLhs / 8;
-  int64_t l2SizeB =
-      2 * packPeelTiling.N0 * packPeelTiling.K * packPeelTiling.nBitsRhs / 8;
-  int64_t l2SizeInit =
-      4 * packPeelTiling.M0 * packPeelTiling.N0 * packPeelTiling.nBitsInit / 8;
+//  int64_t l2SizeA =
+//      2 * packPeelTiling.M0 * packPeelTiling.K * packPeelTiling.nBitsLhs / 8;
+//  int64_t l2SizeB =
+//      2 * packPeelTiling.N0 * packPeelTiling.K * packPeelTiling.nBitsRhs / 8;
+//  int64_t l2SizeInit =
+//      4 * packPeelTiling.M0 * packPeelTiling.N0 * packPeelTiling.nBitsInit / 8;
 
-  bool fitsInL2 = (l2SizeA + l2SizeB + l2SizeInit) <
-                  (deviceModel.getMemTileSizeInBytes() * numCols);
-  int64_t scaleL0 = !isBatchMatmul && fitsInL2 ? 2 : 1;
-  SmallVector<int64_t> tileSizeLevel0 = {packPeelTiling.M0 * scaleL0,
-                                         packPeelTiling.N0 * scaleL0};
+//  bool fitsInL2 = (l2SizeA + l2SizeB + l2SizeInit) <
+//                  (deviceModel.getMemTileSizeInBytes() * numCols);
+//  int64_t scaleL0 = !isBatchMatmul && fitsInL2 ? 2 : 1;
+//  SmallVector<int64_t> tileSizeLevel0 = {packPeelTiling.M0 * scaleL0,
+//                                         packPeelTiling.N0 * scaleL0};
+  SmallVector<int64_t> tileSizeLevel0 = {8, 8};
   SmallVector<int64_t> tileSizeLevel1 = {numRows, numCols, 0};
   SmallVector<int64_t> tileSizeLevel2 = {0, 0, 1};
   SmallVector<int64_t> tileSizeLevel3 = {1, 1, 0, 0, 0, 0};
@@ -874,16 +875,16 @@ static LogicalResult setRootConfig(mlir::FunctionOpInterface entryPointFn,
   assert(!getLoweringConfig<IREE::Codegen::LoweringConfigAttr>(contractionOp) &&
          "expected lowering_config is not set");
   auto linalgOp = cast<linalg::LinalgOp>(contractionOp.getOperation());
-  unsigned numLoops = linalgOp.getNumLoops();
-  {
-    SmallVector<unsigned> dims;
-    linalgOp.getReductionDims(dims);
-    if (dims.size() != 1 || dims[0] != numLoops - 1) {
-      return linalgOp.emitOpError(
-                 "is expected to have exactly one reduction dim, ")
-             << "and that it is the innermost dim (" << numLoops - 1 << ").";
-    }
-  }
+//  unsigned numLoops = linalgOp.getNumLoops();
+//  {
+//    SmallVector<unsigned> dims;
+//    linalgOp.getReductionDims(dims);
+//    if (dims.size() != 1 || dims[0] != numLoops - 1) {
+//      return linalgOp.emitOpError(
+//                 "is expected to have exactly one reduction dim, ")
+//             << "and that it is the innermost dim (" << numLoops - 1 << ").";
+//    }
+//  }
 
   // TODO (nmeshram) : This needs to be moved in a separate more generalized
   // logic. Also, need a flag to experiment between pad based and pack based
