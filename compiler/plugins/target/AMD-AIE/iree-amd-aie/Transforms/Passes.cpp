@@ -320,19 +320,14 @@ void addPackPeel4LevelTilingBasedPassPipeline(
   funcPassManager.addPass(createCanonicalizerPass());
   funcPassManager.addPass(createCSEPass());
 
-  // First level packing
+  // Pad the linalg operation
   {
-    AMDAIEPackAndTransposeOptions packOptions;
-    packOptions.packLevel = 0;
-    funcPassManager.addPass(createAMDAIEPackAndTransposePass(packOptions));
+    AMDAIEPadOptions padOptions;
+    padOptions.paddingLevel = 0;
+    funcPassManager.addPass(createAMDAIEPadPass(padOptions));
   }
 
-  // Propagate pack ops for the elementwise op
-  funcPassManager.addPass(createAMDAIEPropagateDataLayoutPass());
-  funcPassManager.addPass(createCanonicalizerPass());
-  funcPassManager.addPass(createCSEPass());
-
-  // Promote the matmul output to shared memory
+  // Promote the result to shared memory
   {
     AMDAIEBufferizeToAllocationOptions bufferizeOptions;
     bufferizeOptions.memorySpace = 1;
@@ -340,21 +335,44 @@ void addPackPeel4LevelTilingBasedPassPipeline(
     funcPassManager.addPass(
         createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
   }
+  funcPassManager.addPass(createCanonicalizerPass());
+  funcPassManager.addPass(createCSEPass());
 
-  // Promote the elementwise input to shared memory
-  {
-    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
-    bufferizeOptions.memorySpace = 1;
-    bufferizeOptions.bufferizeElementwise = true;
-    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgInput;
-    funcPassManager.addPass(
-        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
-  }
+  // First level packing
+//  {
+//    AMDAIEPackAndTransposeOptions packOptions;
+//    packOptions.packLevel = 0;
+//    funcPassManager.addPass(createAMDAIEPackAndTransposePass(packOptions));
+//  }
+//
+//  // Propagate pack ops for the elementwise op
+//  funcPassManager.addPass(createAMDAIEPropagateDataLayoutPass());
+//  funcPassManager.addPass(createCanonicalizerPass());
+//  funcPassManager.addPass(createCSEPass());
+//
+//  // Promote the matmul output to shared memory
+//  {
+//    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
+//    bufferizeOptions.memorySpace = 1;
+//    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgOutput;
+//    funcPassManager.addPass(
+//        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
+//  }
+//
+//  // Promote the elementwise input to shared memory
+//  {
+//    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
+//    bufferizeOptions.memorySpace = 1;
+//    bufferizeOptions.bufferizeElementwise = true;
+//    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgInput;
+//    funcPassManager.addPass(
+//        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
+//  }
 
   // Second level packing
   {
     AMDAIEPackAndTransposeOptions packOptions;
-    packOptions.packLevel = 1;
+    packOptions.packLevel = 0;
     funcPassManager.addPass(createAMDAIEPackAndTransposePass(packOptions));
   }
 
