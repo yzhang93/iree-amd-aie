@@ -1927,29 +1927,29 @@ class Tests:
 
         self.register(
             Mmt4d(
-                4,
-                4,
-                8,
-                "bf16",
-                "f32",
+                16,
+                16,
+                16,
+                "i32",
+                "i32",
             )
         )
         self.register(
             Mmt4d(
-                4,
-                4,
                 16,
-                "bf16",
-                "f32",
+                16,
+                128,
+                "i32",
+                "i32",
             )
         )
         self.register(
             Mmt4d(
-                4,
+                128,
                 16,
-                4,
-                "bf16",
-                "f32",
+                16,
+                "i32",
+                "i32",
             )
         )
         self.register(
@@ -1962,43 +1962,40 @@ class Tests:
             )
         )
 
-
-
-
         performance_tests = [
-            # {
-            #     "M": 16,
-            #     "N": 16,
-            #     "K": 128,
-            #     "use_ukernel": False,
-            #     "peano_opt_level": 3,
-            #     "outline": True,
-            #     "transpose_a": False,
-            #     "transpose_b": False,
-            #     "mmt4d": True,
-            # },
-            # {
-            #     "M": 16,
-            #     "N": 128,
-            #     "K": 16,
-            #     "use_ukernel": False,
-            #     "peano_opt_level": 3,
-            #     "outline": True,
-            #     "transpose_a": False,
-            #     "transpose_b": False,
-            #     "mmt4d": True,
-            # },
-            # {
-            #     "M": 128,
-            #     "N": 16,
-            #     "K": 16,
-            #     "use_ukernel": False,
-            #     "peano_opt_level": 3,
-            #     "outline": True,
-            #     "transpose_a": False,
-            #     "transpose_b": False,
-            #     "mmt4d": True,
-            # },
+            {
+                "M": 16,
+                "N": 16,
+                "K": 128,
+                "use_ukernel": False,
+                "peano_opt_level": 3,
+                "outline": True,
+                "transpose_a": False,
+                "transpose_b": False,
+                "mmt4d": True,
+            },
+            {
+                "M": 16,
+                "N": 128,
+                "K": 16,
+                "use_ukernel": False,
+                "peano_opt_level": 3,
+                "outline": True,
+                "transpose_a": False,
+                "transpose_b": False,
+                "mmt4d": True,
+            },
+            {
+                "M": 128,
+                "N": 16,
+                "K": 16,
+                "use_ukernel": False,
+                "peano_opt_level": 3,
+                "outline": True,
+                "transpose_a": False,
+                "transpose_b": False,
+                "mmt4d": True,
+            },
             # {
             #     "M": 512,
             #     "N": 512,

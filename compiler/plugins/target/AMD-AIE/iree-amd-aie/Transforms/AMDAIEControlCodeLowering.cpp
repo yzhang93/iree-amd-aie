@@ -68,9 +68,7 @@ struct HalfDmaCpyNdToNpuConverter final
 
     SmallVector<OpFoldResult> offsets(
         strides.size(), getAsIndexOpFoldResult(rewriter.getContext(), 0));
-    SmallVector<OpFoldResult> newOffsets, newSizes, newStrides;
-    (void)foldUnitDims(rewriter.getContext(), offsets, sizes, strides,
-                       newOffsets, newSizes, newStrides);
+    (void)foldUnitDims(rewriter.getContext(), offsets, sizes, strides);
 
     SmallVector<int32_t, 4> staticSizes;
     SmallVector<int32_t, 4> staticStrides;
@@ -81,14 +79,14 @@ struct HalfDmaCpyNdToNpuConverter final
     int32_t iterationSize{0};
     int32_t iterationStride{0};
     int32_t repeatCount{1};
-    for (auto iter : llvm::enumerate(llvm::zip(newSizes, newStrides))) {
+    for (auto iter : llvm::enumerate(llvm::zip(sizes, strides))) {
       int64_t size = getConstantIndexOrAssert(std::get<0>(iter.value()));
       int64_t stride = getConstantIndexOrAssert(std::get<1>(iter.value()));
 
       /// Map the outer dimension to the iteration dimension if intra dimensions
       /// are all used already or if the first stride == 0 as only the iteration
       /// dimension supports stride == 0.
-      if (iter.index() == 0 && (newSizes.size() == numAddrDim || stride == 0)) {
+      if (iter.index() == 0 && (sizes.size() == numAddrDim || stride == 0)) {
         if (stride == 0) {
           repeatCount = size;
         } else {
@@ -102,7 +100,7 @@ struct HalfDmaCpyNdToNpuConverter final
         staticStrides.push_back(
             std::max(stride * elemWidthInBits / minStrideBitWidth, (int64_t)1));
         // Innermost size needs to account for addressing granularity.
-        if (iter.index() == (newSizes.size() - 1)) {
+        if (iter.index() == (sizes.size() - 1)) {
           staticSizes.push_back(size * elemWidthInBits / minStrideBitWidth);
         } else {
           staticSizes.push_back(size);
