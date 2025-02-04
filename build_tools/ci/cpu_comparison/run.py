@@ -873,7 +873,7 @@ class Mmt4d(BaseMatmul):
 
     def _execute(self, config):
         matmul_template_dir = config.file_dir / "matmul_template"
-        template_name = matmul_template_dir / "mmt4d_MxKxM0xK0_NxKxN0xK0.mlir"
+        template_name = matmul_template_dir / "mmt4d_MxKxM0xK0_NxKxK0xN0.mlir"
         self.generate(config, template_name)
         self.vs_cpu(config)
 
@@ -935,7 +935,7 @@ class Mmt4dBenchmark(BaseMatmul):
 
     def _execute(self, config):
         matmul_template_dir = config.file_dir / "matmul_template"
-        template_name = matmul_template_dir / "mmt4d_MxKxM0xK0_NxKxN0xK0.mlir"
+        template_name = matmul_template_dir / "mmt4d_MxKxM0xK0_NxKxK0xN0.mlir"
         self.generate(config, template_name)
         return self.benchmark(config)
 
@@ -2129,7 +2129,7 @@ class Tests:
             {
                 "M": 16,
                 "N": 128,
-                "K": 16,
+                "K": 8,
                 "use_ukernel": False,
                 "peano_opt_level": 3,
                 "outline": "balanced",
@@ -2141,7 +2141,7 @@ class Tests:
             {
                 "M": 16,
                 "N": 128,
-                "K": 16,
+                "K": 8,
                 "use_ukernel": True,
                 "peano_opt_level": 3,
                 "outline": "balanced",
