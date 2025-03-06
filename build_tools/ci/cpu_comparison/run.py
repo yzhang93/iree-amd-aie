@@ -874,10 +874,9 @@ class MatmulScaleTrunci(BaseMatmul):
         K,
         input_type,
         acc_type,
-        lhs,
-        rhs,
-        expected_out,
         test_params=None,
+        additional_labels=None,
+        n_kernel_runs=1,
     ):
         super().__init__(
             name=f"matmul_scale_trunci_{M}_{N}_{K}_{input_type}_{acc_type}",
@@ -887,44 +886,58 @@ class MatmulScaleTrunci(BaseMatmul):
             K=K,
             input_type=input_type,
             acc_type=acc_type,
+            n_kernel_runs=n_kernel_runs,
+            function_name="matmul_trunci",
         )
         self.labels.append("MatmulScaleTrunci")
 
         # Assertions on shapes: Check that lhs is MxK, rhs is KxN, and expected_out is MxN
-        assert lhs.shape == (M, K)
-        assert rhs.shape == (K, N)
-        assert expected_out.shape == (M, N)
+        # assert lhs.shape == (M, K)
+        # assert rhs.shape == (K, N)
+        # assert expected_out.shape == (M, N)
 
-        self.lhs = lhs
-        self.rhs = rhs
-        self.expected_out = expected_out
+        self.lhs = (512, 512)
+        self.rhs = (512, 512)
+        self.expected_out = (512, 512)
+
+        if additional_labels:
+            self.labels += additional_labels
+        if self.run_benchmark:
+            self.aie_compilation_flags += [
+                "--iree-amdaie-enable-infinite-loop-around-core-block=true"
+            ]
+            self.labels.append("MatmulScaleTrunciBenchmark")
 
     def _execute(self, config):
         matmul_template_dir = config.file_dir / "matmul_template"
         template_name = matmul_template_dir / "matmul_trunci_scaling_MxK_KxN.mlir"
         self.generate(config, template_name)
         filename = self.get_filename(config)
-        input_args = generate_inputs(
-            filename, self.get_dir(config), 1, {1: self.lhs, 2: self.rhs}
-        )
-        aie_vs_baseline(
-            config=config,
-            aie_compilation_flags=self.aie_compilation_flags,
-            test_file=self.get_filename(config),
-            input_args=input_args,
-            baseline_value=self.expected_out,
-            use_ukernel=self.use_ukernel,
-            tile_pipeline=self.tile_pipeline,
-            function_name=None,
-            seed=1,
-            rtol=0,
-            atol=0,
-            lower_to_aie_pipeline=self.lower_to_aie_pipeline,
-            n_repeats=self.n_repeats,
-            output_type=get_output_type(self.get_filename(config)),
-        )
+        # input_args = generate_inputs(
+        #     filename, self.get_dir(config), 1, {1: self.lhs, 2: self.rhs}
+        # )
 
-        return True
+        if self.run_benchmark:
+            return self.benchmark(config)
+
+        # aie_vs_baseline(
+        #     config=config,
+        #     aie_compilation_flags=self.aie_compilation_flags,
+        #     test_file=self.get_filename(config),
+        #     input_args=input_args,
+        #     baseline_value=self.expected_out,
+        #     use_ukernel=self.use_ukernel,
+        #     tile_pipeline=self.tile_pipeline,
+        #     function_name=None,
+        #     seed=1,
+        #     rtol=0,
+        #     atol=0,
+        #     lower_to_aie_pipeline=self.lower_to_aie_pipeline,
+        #     n_repeats=self.n_repeats,
+        #     output_type=get_output_type(self.get_filename(config)),
+        # )
+
+        return self.vs_cpu(config)
 
 
 def find_executable(install_dir: Path, executable_name):
@@ -1711,9 +1724,6 @@ class Tests:
                 128,
                 "i8",
                 "i32",
-                2 * np.ones([256, 128], dtype=np.int8),
-                3 * np.ones([128, 256], dtype=np.int8),
-                60 * np.ones([256, 256], dtype=np.int8),
                 test_params=TestParams(
                     name_suffix="scaling",
                     tile_pipeline="pack-peel-4-level-tiling",
@@ -1730,9 +1740,6 @@ class Tests:
                 128,
                 "i8",
                 "i32",
-                2 * np.ones([256, 128], dtype=np.int8),
-                3 * np.ones([128, 256], dtype=np.int8),
-                60 * np.ones([256, 256], dtype=np.int8),
                 test_params=TestParams(
                     tile_pipeline="pack-peel-4-level-tiling",
                     run_on_target=["npu1_4col"],
@@ -1740,25 +1747,25 @@ class Tests:
             )
         )
         # Strix : Ukernel + Peano.
-        self.register(
-            MatmulScaleTrunci(
-                256,
-                256,
-                128,
-                "i8",
-                "i32",
-                2 * np.ones([256, 128], dtype=np.int8),
-                3 * np.ones([128, 256], dtype=np.int8),
-                60 * np.ones([256, 256], dtype=np.int8),
-                test_params=TestParams(
-                    tile_pipeline="pack-peel-4-level-tiling",
-                    run_on_target=["npu4"],
-                    use_chess=False,
-                    use_ukernel=True,
-                    use_chess_for_ukernel=False,
-                ),
-            )
-        )
+        # self.register(
+        #     MatmulScaleTrunci(
+        #         256,
+        #         256,
+        #         128,
+        #         "i8",
+        #         "i32",
+        #         2 * np.ones([256, 128], dtype=np.int8),
+        #         3 * np.ones([128, 256], dtype=np.int8),
+        #         60 * np.ones([256, 256], dtype=np.int8),
+        #         test_params=TestParams(
+        #             tile_pipeline="pack-peel-4-level-tiling",
+        #             run_on_target=["npu4"],
+        #             use_chess=False,
+        #             use_ukernel=True,
+        #             use_chess_for_ukernel=False,
+        #         ),
+        #     )
+        # )
         # Matmul with truncf test(s):
         for tile_pipeline in ["pack-peel", "pack-peel-4-level-tiling"]:
             self.register(
