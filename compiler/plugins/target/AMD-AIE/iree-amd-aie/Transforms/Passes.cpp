@@ -19,6 +19,7 @@
 #include "air/Transform/AIRHerdPlacementPass.h"
 #include "air/Transform/AIRMiscPasses.h"
 #include "air/Transform/AffineLoopOptPass.h"
+#include "iree-amd-aie/Transforms/AMDAIEEnums.h"
 #include "iree-amd-aie/IR/AMDAIEAttrs.h"
 #include "iree-amd-aie/Transforms/Passes.h"
 #include "iree-amd-aie/Transforms/Utils/AMDAIEUtils.h"

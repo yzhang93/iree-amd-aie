@@ -8,6 +8,7 @@
 #define IREE_AMD_AIE_TRANSFORMS_PASSES_H_
 
 #include "iree-amd-aie/Transforms/PassDetail.h"
+#include "iree-amd-aie/Transforms/AMDAIEEnums.h"
 #include "iree-amd-aie/aie_runtime/AMDAIEEnums.h"
 #include "mlir/Pass/Pass.h"
 
