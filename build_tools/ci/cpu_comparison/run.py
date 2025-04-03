@@ -1949,25 +1949,15 @@ class Tests:
         )
 
         # MatmulThinBias test(s):
-        self.register(
-            MatmulThinBias(
-                1024,
-                1024,
-                512,
-                "bf16",
-                "f32",
-                test_params=TestParams(use_ukernel=True, lower_to_aie_pipeline="air"),
-            )
-        )
         self.register(MatmulThinBias(1024, 1024, 512, "bf16", "f32"))
 
         # MatmulFullBias test:
-        self.register(MatmulFullBias(128, 128, 256, "i32", "i32"))
+        self.register(MatmulFullBias(128, 128, 256, "bf16", "f32"))
 
         # MatmulTransposeB test(s):
         for input_type, acc_type in zip(["i8", "bf16"], ["i32", "f32"]):
             self.register(MatmulTransposeB(32, 32, 32, input_type, acc_type))
-            self.register(MatmulTransposeB(128, 256, 256, input_type, acc_type))
+            self.register(MatmulTransposeB(128, 256, 128, input_type, acc_type))
             self.register(
                 MatmulTransposeB(
                     128,

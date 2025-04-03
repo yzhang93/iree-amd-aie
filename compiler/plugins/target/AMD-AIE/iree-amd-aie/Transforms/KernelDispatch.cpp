@@ -172,6 +172,7 @@ class ParameterSetting {
                                             bool isObjectFifo,
                                             AMDAIEDevice targetDevice,
                                             uint32_t numRows, uint32_t numCols,
+                                            std::string enableAMDAIEUkernels,
                                             uint32_t kPackScaleL1 = 1);
 
  private:
@@ -199,7 +200,8 @@ class ParameterSetting {
 
 FailureOr<ParameterSetting> ParameterSetting::create(
     linalg::LinalgOp linalgOp, bool isObjectFifo, AMDAIEDevice targetDevice,
-    uint32_t numRows, uint32_t numCols, uint32_t kPackScaleL1) {
+    uint32_t numRows, uint32_t numCols, std::string enableAMDAIEUkernels,
+    uint32_t kPackScaleL1) {
   auto initType =
       llvm::cast<ShapedType>(linalgOp.getDpsInitOperand(0)->get().getType());
   unsigned nBytesInit = initType.getElementTypeBitWidth() / 8;
@@ -253,12 +255,13 @@ FailureOr<ParameterSetting> ParameterSetting::create(
   unsigned nBytesElemOut{0};
   if (isMatmulWithElementwiseConsumer(linalgOp)) {
     for (Operation *userOp : linalgOp->getUsers()) {
-      auto linalgUser = dyn_cast<linalg::LinalgOp>(userOp);
-      if (linalgUser && linalgUser.getNumDpsInputs() == 1) {
+      if (auto linalgUser = dyn_cast<linalg::LinalgOp>(userOp)) {
         auto outputType = llvm::cast<ShapedType>(
             linalgUser.getDpsInitOperand(0)->get().getType());
         nBytesElemOut = outputType.getElementTypeBitWidth() / 8;
-        isDoubleBufferAcc = 1;
+        // For bias, we need to count the second input from elementwise op, so
+        // reserve another buffer for that.
+        isDoubleBufferAcc = linalgUser.getNumDpsInputs() == 1 ? 1 : 2;
       }
     }
   }
@@ -293,11 +296,13 @@ FailureOr<ParameterSetting> ParameterSetting::create(
   uint32_t K0 = 1;
   uint32_t maxL0SizeK = findLargestFactor(K, maxL1Size.K);
   // For some reason, matmul(bf16, bf16, f32) get best performance when k = 32
-  // on phoenix with peano. Increasing k to 64 or 128 degrades the performance.
-  // TODO: enable larger k tile size for ukernels.
-  uint32_t k0Pack = (nBytesLhs == 16 && nBytesRhs == 16 && nBytesInit == 16)
-                        ? 32
-                        : maxL0SizeK;
+  // on phoenix with peano for pack-peel pipeline. So for now using max k tile
+  // size with ukernel path, while keeping smaller size for vectorization path.
+  // TODO: fix vectorization path to use larger k tile size.
+  uint32_t k0Pack =
+      enableAMDAIEUkernels == "none"
+          ? std::min(static_cast<int>(kPackScaleL1 * 32), static_cast<int>(K))
+          : maxL0SizeK;
 
   return ParameterSetting(M0, N0, K0, m0Pack, n0Pack, k0Pack, m1Pack, n1Pack,
                           k1Pack, M, N, K, nBytesLhs, nBytesRhs, nBytesInit);
@@ -368,13 +373,14 @@ static SmallVector<int64_t> setOuterPermB(bool isMatmulTransposeB,
 static LogicalResult setRootConfigForPackPeel4LevelTilingPipeline(
     mlir::FunctionOpInterface entryPointFn, linalg::LinalgOp linalgOp,
     LowerToAIEPassPipeline useLowerToAIEPipeline, AMDAIEDevice targetDevice,
-    uint32_t numRows, uint32_t numCols) {
+    uint32_t numRows, uint32_t numCols, std::string enableAMDAIEUkernels) {
   // Scale the L1 K with a factor of 2 compared with the outer dimensions M and
   // N to increase the L1 memory usage.
   bool isObjectFifo =
       useLowerToAIEPipeline == LowerToAIEPassPipeline::ObjectFifo;
   auto maybePackPeelTiling = ParameterSetting::create(
-      linalgOp, isObjectFifo, targetDevice, numRows, numCols);
+      linalgOp, isObjectFifo, targetDevice, numRows, numCols,
+      enableAMDAIEUkernels, /*kPackScaleL1=*/2);
   if (failed(maybePackPeelTiling)) return failure();
   auto packPeelTiling = maybePackPeelTiling.value();
 
@@ -535,12 +541,12 @@ static LogicalResult setRootConfigForPackPeel4LevelTilingPipeline(
 static LogicalResult setRootConfigForPackPeelPipeline(
     mlir::FunctionOpInterface entryPointFn, linalg::LinalgOp linalgOp,
     LowerToAIEPassPipeline useLowerToAIEPipeline, AMDAIEDevice targetDevice,
-    uint32_t numRows, uint32_t numCols) {
+    uint32_t numRows, uint32_t numCols, std::string enableAMDAIEUkernels) {
   bool isObjectFifo =
       useLowerToAIEPipeline == LowerToAIEPassPipeline::ObjectFifo;
   auto maybePackPeelTiling =
       ParameterSetting::create(linalgOp, isObjectFifo, targetDevice, numRows,
-                               numCols, /*kPackScaleL1=*/2);
+                               numCols, enableAMDAIEUkernels);
   if (failed(maybePackPeelTiling)) return failure();
   auto packPeelTiling = maybePackPeelTiling.value();
 
@@ -814,7 +820,8 @@ static LogicalResult setRootConfig(mlir::FunctionOpInterface entryPointFn,
                                    TilePassPipeline passPipeline,
                                    LowerToAIEPassPipeline useLowerToAIEPipeline,
                                    AMDAIEDevice targetDevice, uint32_t numRows,
-                                   uint32_t numCols) {
+                                   uint32_t numCols,
+                                   std::string enableAMDAIEUkernels) {
   assert(!getLoweringConfig<IREE::Codegen::LoweringConfigAttr>(genericOp) &&
          "expected lowering_config is not set");
   if (!isMatmul(genericOp) && !isMatmulTransposeA(genericOp) &&
@@ -823,14 +830,14 @@ static LogicalResult setRootConfig(mlir::FunctionOpInterface entryPointFn,
         "Current pipelines are only set for matmul-like ops.");
 
   if (passPipeline == TilePassPipeline::PackPeelPipeline) {
-    return setRootConfigForPackPeelPipeline(entryPointFn, genericOp,
-                                            useLowerToAIEPipeline, targetDevice,
-                                            numRows, numCols);
+    return setRootConfigForPackPeelPipeline(
+        entryPointFn, genericOp, useLowerToAIEPipeline, targetDevice, numRows,
+        numCols, enableAMDAIEUkernels);
   }
   if (passPipeline == TilePassPipeline::PackPeel4LevelTilingPipeline) {
     return setRootConfigForPackPeel4LevelTilingPipeline(
         entryPointFn, genericOp, useLowerToAIEPipeline, targetDevice, numRows,
-        numCols);
+        numCols, enableAMDAIEUkernels);
   }
   return genericOp.emitError("Unhandled pass pipeline in setRootConfig.");
 }
@@ -842,7 +849,8 @@ static LogicalResult setRootConfig(mlir::FunctionOpInterface entryPointFn,
                                    TilePassPipeline passPipeline,
                                    LowerToAIEPassPipeline useLowerToAIEPipeline,
                                    AMDAIEDevice targetDevice, uint32_t numRows,
-                                   uint32_t numCols) {
+                                   uint32_t numCols,
+                                   std::string enableAMDAIEUkernels) {
   assert(!getLoweringConfig<IREE::Codegen::LoweringConfigAttr>(contractionOp) &&
          "expected lowering_config is not set");
   auto linalgOp = cast<linalg::LinalgOp>(contractionOp.getOperation());
@@ -851,14 +859,14 @@ static LogicalResult setRootConfig(mlir::FunctionOpInterface entryPointFn,
   // logic. Also, need a flag to experiment between pad based and pack based
   // approach which will have different tile sizes and pass pipelines
   if (passPipeline == TilePassPipeline::PackPeelPipeline) {
-    return setRootConfigForPackPeelPipeline(entryPointFn, linalgOp,
-                                            useLowerToAIEPipeline, targetDevice,
-                                            numRows, numCols);
+    return setRootConfigForPackPeelPipeline(
+        entryPointFn, linalgOp, useLowerToAIEPipeline, targetDevice, numRows,
+        numCols, enableAMDAIEUkernels);
   }
   if (passPipeline == TilePassPipeline::PackPeel4LevelTilingPipeline) {
     return setRootConfigForPackPeel4LevelTilingPipeline(
         entryPointFn, linalgOp, useLowerToAIEPipeline, targetDevice, numRows,
-        numCols);
+        numCols, enableAMDAIEUkernels);
   }
   return linalgOp.emitError("Unhandled pass pipeline in setRootConfig.");
 }
@@ -884,7 +892,8 @@ static LogicalResult setConvRootConfig(mlir::FunctionOpInterface entryPointFn,
 static LogicalResult setRootConfigImpl(
     mlir::FunctionOpInterface entryPointFn, Operation *op,
     TilePassPipeline passPipeline, LowerToAIEPassPipeline useLowerToAIEPipeline,
-    AMDAIEDevice targetDevice, uint32_t numRows, uint32_t numCols) {
+    AMDAIEDevice targetDevice, uint32_t numRows, uint32_t numCols,
+    std::string enableAMDAIEUkernels) {
   auto setRootConfigFn = [&](Operation *op) -> LogicalResult {
     return TypeSwitch<Operation *, LogicalResult>(op)
         // TODO (nmeshram): This is very limited for now, plan is to
@@ -900,12 +909,12 @@ static LogicalResult setRootConfigImpl(
         .Case<linalg::GenericOp>([&](auto op) {
           return setRootConfig(entryPointFn, op, passPipeline,
                                useLowerToAIEPipeline, targetDevice, numRows,
-                               numCols);
+                               numCols, enableAMDAIEUkernels);
         })
         .Case<linalg::ContractionOpInterface>([&](auto op) {
           return setRootConfig(entryPointFn, op, passPipeline,
                                useLowerToAIEPipeline, targetDevice, numRows,
-                               numCols);
+                               numCols, enableAMDAIEUkernels);
         })
         .Default([&](Operation *op) { return success(); });
   };
@@ -916,7 +925,8 @@ static LogicalResult setRootConfigImpl(
 static LogicalResult setTranslationInfoAndRootConfig(
     mlir::FunctionOpInterface entryPointFn, ArrayRef<Operation *> computeOps,
     TilePassPipeline passPipeline, LowerToAIEPassPipeline useLowerToAIEPipeline,
-    AMDAIEDevice targetDevice, uint32_t numRows, uint32_t numCols) {
+    AMDAIEDevice targetDevice, uint32_t numRows, uint32_t numCols,
+    std::string enableAMDAIEUkernels) {
   // Make sure that lowering_config is not preset on any compute ops.
   for (auto computeOp : computeOps) {
     if (getLoweringConfig<IREE::Codegen::LoweringConfigAttr>(computeOp))
@@ -933,7 +943,7 @@ static LogicalResult setTranslationInfoAndRootConfig(
 
   if (failed(setRootConfigImpl(entryPointFn, rootOperation, passPipeline,
                                useLowerToAIEPipeline, targetDevice, numRows,
-                               numCols)))
+                               numCols, enableAMDAIEUkernels)))
     return failure();
   return success();
 }
@@ -946,7 +956,8 @@ LogicalResult initAIELaunchConfig(FunctionOpInterface funcOp,
                                   TilePassPipeline passPipeline,
                                   LowerToAIEPassPipeline useLowerToAIEPipeline,
                                   AMDAIEDevice targetDevice, uint32_t numRows,
-                                  uint32_t numCols) {
+                                  uint32_t numCols,
+                                  std::string enableAMDAIEUkernels) {
   if (getTranslationInfo(funcOp)) return success();
 
   // TODO (nmeshram): Need a default pipeline for control flow cases.
@@ -954,9 +965,9 @@ LogicalResult initAIELaunchConfig(FunctionOpInterface funcOp,
     return funcOp.emitError("Control flow not yet supported.");
 
   SmallVector<Operation *> computeOps = getComputeOps(funcOp);
-  if (failed(setTranslationInfoAndRootConfig(funcOp, computeOps, passPipeline,
-                                             useLowerToAIEPipeline,
-                                             targetDevice, numRows, numCols)))
+  if (failed(setTranslationInfoAndRootConfig(
+          funcOp, computeOps, passPipeline, useLowerToAIEPipeline, targetDevice,
+          numRows, numCols, enableAMDAIEUkernels)))
     return failure();
 
   // The root configuration setting introduces `tensor.dim` operations.
