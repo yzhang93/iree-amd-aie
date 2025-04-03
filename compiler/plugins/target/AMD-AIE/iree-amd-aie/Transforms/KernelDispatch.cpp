@@ -253,7 +253,8 @@ FailureOr<ParameterSetting> ParameterSetting::create(
   unsigned nBytesElemOut{0};
   if (isMatmulWithElementwiseConsumer(linalgOp)) {
     for (Operation *userOp : linalgOp->getUsers()) {
-      if (auto linalgUser = dyn_cast<linalg::LinalgOp>(userOp)) {
+      auto linalgUser = dyn_cast<linalg::LinalgOp>(userOp);
+      if (linalgUser && linalgUser.getNumDpsInputs() == 1) {
         auto outputType = llvm::cast<ShapedType>(
             linalgUser.getDpsInitOperand(0)->get().getType());
         nBytesElemOut = outputType.getElementTypeBitWidth() / 8;
@@ -290,7 +291,13 @@ FailureOr<ParameterSetting> ParameterSetting::create(
   // In pack-peel pipeline there is only one level of tiling for K dimension,
   // so set K1 = 0. The packed outer K dimension needs to be 1, so set K0 = 1.
   uint32_t K0 = 1;
-  uint32_t k0Pack = findLargestFactor(K, maxL1Size.K);
+  uint32_t maxL0SizeK = findLargestFactor(K, maxL1Size.K);
+  // For some reason, matmul(bf16, bf16, f32) get best performance when k = 32
+  // on phoenix with peano. Increasing k to 64 or 128 degrades the performance.
+  // TODO: enable larger k tile size for ukernels.
+  uint32_t k0Pack = (nBytesLhs == 16 && nBytesRhs == 16 && nBytesInit == 16)
+                        ? 32
+                        : maxL0SizeK;
 
   return ParameterSetting(M0, N0, K0, m0Pack, n0Pack, k0Pack, m1Pack, n1Pack,
                           k1Pack, M, N, K, nBytesLhs, nBytesRhs, nBytesInit);
