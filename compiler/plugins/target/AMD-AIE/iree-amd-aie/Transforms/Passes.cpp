@@ -616,8 +616,12 @@ void addSoftmaxCopyPassPipeline(OpPassManager &funcPassManager,
   }
 
   // Insert copy operations to the softmax input and result.
-  funcPassManager.addPass(createAMDAIEInsertCopyOpsPass());
-  addCleanups();
+  {
+    AMDAIEInsertCopyOpsOptions padOptions;
+    padOptions.padOperand = PadOperand::InputOutput;
+    funcPassManager.addPass(createAMDAIEInsertCopyOpsPass(padOptions));
+    addCleanups();
+  }
 
   // Promote the softmax input and result to shared memory.
   {
@@ -639,11 +643,15 @@ void addSoftmaxCopyPassPipeline(OpPassManager &funcPassManager,
   }
 
   // Fuse fill op into the inner forall loop
-  funcPassManager.addPass(createAMDAIEFuseFillIntoForallPass());
+  //funcPassManager.addPass(createAMDAIEFuseFillIntoForallPass());
 
   // Insert copy operations to the softmax input and result.
-  funcPassManager.addPass(createAMDAIEInsertCopyOpsPass());
-  addCleanups();
+  {
+    AMDAIEInsertCopyOpsOptions padOptions;
+    padOptions.padOperand = PadOperand::InputOutput;
+    funcPassManager.addPass(createAMDAIEInsertCopyOpsPass(padOptions));
+    addCleanups();
+  }
 
   // Promote the softmax input and result to local memory.
   {
@@ -663,6 +671,24 @@ void addSoftmaxCopyPassPipeline(OpPassManager &funcPassManager,
     funcPassManager.addPass(createAMDAIETileAndFusePass(tileFuseOptions));
     addCleanups();
   }
+
+//  // Insert copy operations to the softmax input and result.
+//  {
+//    AMDAIEInsertCopyOpsOptions padOptions;
+//    padOptions.padOperand = PadOperand::Input;
+//    funcPassManager.addPass(createAMDAIEInsertCopyOpsPass(padOptions));
+//    addCleanups();
+//  }
+//
+//  // Promote the softmax input and result to local memory.
+//  {
+//    AMDAIEBufferizeToAllocationOptions bufferizeOptions;
+//    bufferizeOptions.memorySpace = 2;
+//    bufferizeOptions.bufferizeOperand = BufferizeOperand::LinalgInput;
+//    funcPassManager.addPass(
+//        createAMDAIEBufferizeToAllocationPass(bufferizeOptions));
+//    addCleanups();
+//  }
 
   // Lower to UKernels.
   {

@@ -17,3 +17,19 @@ func.func @softmax_insert_copy_ops(%in0: tensor<1x32xbf16>) -> tensor<1x32xbf16>
   %2 = linalg.softmax dimension(1) ins(%in0 : tensor<1x32xbf16>) outs(%1 : tensor<1x32xbf16>) -> tensor<1x32xbf16>
   return %2 : tensor<1x32xbf16>
 }
+
+// -----
+
+func.func @softmax_forall(%arg0: tensor<1x32xbf16>) -> tensor<1x32xbf16> {
+  %c0_i32 = arith.constant 0 : i32
+  %0 = tensor.empty() : tensor<1x32xbf16>
+  %1 = scf.forall (%arg1) in (1) shared_outs(%arg2 = %0) -> (tensor<1x32xbf16>) {
+    %2 = linalg.fill ins(%c0_i32 : i32) outs(%arg2 : tensor<1x32xbf16>) -> tensor<1x32xbf16>
+    %3 = linalg.softmax dimension(1) ins(%arg0 : tensor<1x32xbf16>) outs(%2 : tensor<1x32xbf16>) -> tensor<1x32xbf16>
+    scf.forall.in_parallel {
+      tensor.parallel_insert_slice %3 into %arg2[0, 0] [1, 32] [1, 1] : tensor<1x32xbf16> into tensor<1x32xbf16>
+    }
+  } {mapping = [#gpu.block<y>]}
+  return %1 : tensor<1x32xbf16>
+}
+
