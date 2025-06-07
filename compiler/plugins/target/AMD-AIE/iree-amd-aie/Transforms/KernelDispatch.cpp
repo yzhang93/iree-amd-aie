@@ -834,6 +834,31 @@ static LogicalResult setRootConfigForSoftmaxCopyPipeline(
   return success();
 }
 
+static LogicalResult setRootConfigForReductionPipeline(
+    mlir::FunctionOpInterface entryPointFn, linalg::LinalgOp linalgOp,
+    AMDAIEDevice targetDevice, uint32_t numRows, uint32_t numCols,
+    std::string enableAMDAIEUkernels) {
+  // For now, we are targeting a single column of cores, and the L1 tile sizes
+  // are hardcoded. We don't tile the reduction dim as the softmax op is not a
+  // pure reduction op.
+  ArrayRef<int64_t> inputShape =
+      llvm::cast<ShapedType>(linalgOp.getDpsInputOperand(0)->get().getType())
+          .getShape();
+  int64_t m1Tile = std::min<int64_t>(inputShape[0], 32);
+  int64_t m0Tile = std::min<int64_t>(inputShape[0], numRows * m1Tile);
+
+  SmallVector<int64_t> tileSizeLevel0 = {m0Tile, 0};
+  SmallVector<int64_t> tileSizeLevel1 = {m1Tile, 0};
+  SmallVector<int64_t> tileSizeLevel2 = {0, 0};
+  if (failed(setOpConfigAndEntryPointFnTranslation(
+          entryPointFn, linalgOp,
+          TileSizesListType{tileSizeLevel0, tileSizeLevel1, tileSizeLevel2},
+          IREE::Codegen::DispatchLoweringPassPipeline::Custom))) {
+    return failure();
+  }
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // Root Configurations
 //===----------------------------------------------------------------------===//
@@ -849,20 +874,25 @@ static LogicalResult setRootConfig(mlir::FunctionOpInterface entryPointFn,
                                    std::string enableAMDAIEUkernels) {
   assert(!getLoweringConfig<IREE::Codegen::LoweringConfigAttr>(genericOp) &&
          "expected lowering_config is not set");
-  if (!isMatmul(genericOp) && !isMatmulTransposeA(genericOp) &&
-      !isMatmulTransposeB(genericOp))
-    return genericOp.emitOpError(
-        "Current pipelines are only set for matmul-like ops.");
 
-  if (passPipeline == TilePassPipeline::PackPeelPipeline) {
-    return setRootConfigForPackPeelPipeline(
-        entryPointFn, genericOp, useLowerToAIEPipeline, targetDevice, numRows,
-        numCols, enableAMDAIEUkernels);
-  }
-  if (passPipeline == TilePassPipeline::PackPeel4LevelTilingPipeline) {
-    return setRootConfigForPackPeel4LevelTilingPipeline(
-        entryPointFn, genericOp, useLowerToAIEPipeline, targetDevice, numRows,
-        numCols, enableAMDAIEUkernels);
+  if (isMatmul(genericOp) || isMatmulTransposeA(genericOp) ||
+      isMatmulTransposeB(genericOp)) {
+    if (passPipeline == TilePassPipeline::PackPeelPipeline) {
+      return setRootConfigForPackPeelPipeline(
+          entryPointFn, genericOp, useLowerToAIEPipeline, targetDevice, numRows,
+          numCols, enableAMDAIEUkernels);
+    }
+    if (passPipeline == TilePassPipeline::PackPeel4LevelTilingPipeline) {
+      return setRootConfigForPackPeel4LevelTilingPipeline(
+          entryPointFn, genericOp, useLowerToAIEPipeline, targetDevice, numRows,
+          numCols, enableAMDAIEUkernels);
+    }
+  } else if (isReductionOp(genericOp)) {
+    if (passPipeline == TilePassPipeline::SoftmaxCopyPipeline) {
+      return setRootConfigForReductionPipeline(entryPointFn, genericOp,
+                                               targetDevice, numRows, numCols,
+                                               enableAMDAIEUkernels);
+    }
   }
   return genericOp.emitError("Unhandled pass pipeline in setRootConfig.");
 }

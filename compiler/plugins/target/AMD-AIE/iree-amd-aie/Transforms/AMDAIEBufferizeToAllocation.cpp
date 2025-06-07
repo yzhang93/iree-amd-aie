@@ -7,6 +7,7 @@
 #include "iree-amd-aie/IR/AMDAIEAttrs.h"
 #include "iree-amd-aie/Transforms/Passes.h"
 #include "iree-amd-aie/Transforms/Utils/AMDAIEUtils.h"
+#include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Dialect/MemRef/Transforms/Transforms.h"
@@ -179,9 +180,8 @@ void AMDAIEBufferizeToAllocationPass::runOnOperation() {
   SmallVector<Operation *> targetOps;
   funcOp->walk<WalkOrder::PostOrder, ReverseIterator>([&](Operation *op) {
     if (auto linalgOp = dyn_cast<linalg::LinalgOp>(op)) {
-      // Skip if the op is neither elementwise, a contraction, nor a
-      // convolution.
-      if (!isElementwise(linalgOp) &&
+      // Skip if the op is not elementwise/reduction/contraction/convolution.
+      if (!isElementwise(linalgOp) && !isReductionOp(linalgOp) &&
           !linalg::isaContractionOpInterface(linalgOp) &&
           !linalg::isaConvolutionOpInterface(linalgOp)) {
         return WalkResult::advance();
